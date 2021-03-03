@@ -5,49 +5,49 @@ package com.microsoft.alm.plugin.idea.common.ui.checkout;
 
 import com.microsoft.alm.plugin.idea.common.ui.common.FocusableTabPage;
 import com.microsoft.alm.plugin.idea.common.ui.common.ServerContextTableModel;
-
+import java.awt.event.ActionListener;
 import javax.swing.JComponent;
 import javax.swing.ListSelectionModel;
-import java.awt.event.ActionListener;
 
 /**
  * This interface exists to make testing the controller possible
  */
 public interface CheckoutPage extends FocusableTabPage {
 
-    void addActionListener(ActionListener listener);
+  void addActionListener(ActionListener listener);
 
-    void setLoginShowing(boolean showLogin);
+  void setLoginShowing(boolean showLogin);
 
-    void setLoading(boolean loading);
+  void setLoading(boolean loading);
 
-    void setAuthenticating(boolean authenticating);
+  void setAuthenticating(boolean authenticating);
 
-    void setAdvanced(boolean advanced);
+  void setAdvanced(boolean advanced);
 
-    boolean getAdvanced();
+  boolean getAdvanced();
 
-    boolean isTfvcServerCheckout();
+  boolean isTfvcServerCheckout();
 
-    void setRepositoryFilter(String filter);
+  void setRepositoryFilter(String filter);
 
-    String getRepositoryFilter();
+  String getRepositoryFilter();
 
-    void setRepositoryTable(ServerContextTableModel tableModel, ListSelectionModel selectionModel);
+  void setRepositoryTable(ServerContextTableModel tableModel,
+                          ListSelectionModel selectionModel);
 
-    void setParentDirectory(String path);
+  void setParentDirectory(String path);
 
-    String getParentDirectory();
+  String getParentDirectory();
 
-    void setDirectoryName(String name);
+  void setDirectoryName(String name);
 
-    String getDirectoryName();
+  String getDirectoryName();
 
-    void setUserName(String name);
+  void setUserName(String name);
 
-    void setServerName(String name);
+  void setServerName(String name);
 
-    String getServerName();
+  String getServerName();
 
-    JComponent getComponent(String name);
+  JComponent getComponent(String name);
 }

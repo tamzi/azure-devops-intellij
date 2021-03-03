@@ -28,69 +28,84 @@ import com.microsoft.alm.plugin.external.utils.CommandUtils;
 import com.microsoft.alm.plugin.idea.common.resources.TfPluginBundle;
 import com.microsoft.alm.plugin.idea.tfvc.core.TfvcClient;
 import com.microsoft.alm.plugin.idea.tfvc.ui.LockItemsDialog;
+import java.util.ArrayList;
+import java.util.List;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.List;
-
 public class LockAction extends MultipleItemAction<ExtendedItemInfo> {
-    public static final Logger logger = LoggerFactory.getLogger(LockAction.class);
+  public static final Logger logger = LoggerFactory.getLogger(LockAction.class);
 
-    public LockAction() {
-        super(TfPluginBundle.message(TfPluginBundle.KEY_ACTIONS_TFVC_LOCK_TITLE),
-                TfPluginBundle.message(TfPluginBundle.KEY_ACTIONS_TFVC_LOCK_MSG));
+  public LockAction() {
+    super(TfPluginBundle.message(TfPluginBundle.KEY_ACTIONS_TFVC_LOCK_TITLE),
+          TfPluginBundle.message(TfPluginBundle.KEY_ACTIONS_TFVC_LOCK_MSG));
+  }
+
+  @Override
+  protected void loadItemInfoCollection(MultipleItemActionContext context,
+                                        List<String> localPaths) {
+    TfvcClient client = TfvcClient.getInstance(context.project);
+    client.getExtendedItemsInfo(context.serverContext, localPaths,
+                                context.itemInfos::add);
+  }
+
+  @Override
+  protected void
+  execute(@NotNull final MultipleItemActionContext actionContext) {
+    logger.info("Starting Lock/unlock action");
+    final LockItemsDialog d =
+        new LockItemsDialog(actionContext.project, actionContext.itemInfos);
+    d.show();
+    int exitCode = d.getExitCode();
+    if (exitCode != LockItemsDialog.LOCK_EXIT_CODE &&
+        exitCode != LockItemsDialog.UNLOCK_EXIT_CODE) {
+      logger.info("User canceled Lock/unlock action");
+      actionContext.cancelled = true;
+      return;
     }
 
-    @Override
-    protected void loadItemInfoCollection(MultipleItemActionContext context, List<String> localPaths) {
-        TfvcClient client = TfvcClient.getInstance(context.project);
-        client.getExtendedItemsInfo(context.serverContext, localPaths, context.itemInfos::add);
-    }
+    final String title =
+        d.getLockLevel() == LockCommand.LockLevel.NONE
+            ? TfPluginBundle.message(
+                  TfPluginBundle.KEY_ACTIONS_TFVC_LOCK_PROGRESS_UNLOCKING)
+            : TfPluginBundle.message(
+                  TfPluginBundle.KEY_ACTIONS_TFVC_LOCK_PROGRESS_LOCKING);
+    runWithProgress(actionContext, () -> {
+      ProgressManager.getInstance().getProgressIndicator().setIndeterminate(
+          true);
+      List<ExtendedItemInfo> selectedItems = d.getSelectedItems();
+      final List<String> itemSpecs = new ArrayList<>(selectedItems.size());
+      for (ExtendedItemInfo item : selectedItems) {
+        itemSpecs.add(item.getServerItem());
+      }
 
-    @Override
-    protected void execute(@NotNull final MultipleItemActionContext actionContext) {
-        logger.info("Starting Lock/unlock action");
-        final LockItemsDialog d = new LockItemsDialog(actionContext.project, actionContext.itemInfos);
-        d.show();
-        int exitCode = d.getExitCode();
-        if (exitCode != LockItemsDialog.LOCK_EXIT_CODE && exitCode != LockItemsDialog.UNLOCK_EXIT_CODE) {
-            logger.info("User canceled Lock/unlock action");
-            actionContext.cancelled = true;
-            return;
+      logger.info("Calling the lock command");
+      try {
+        CommandUtils.lock(actionContext.serverContext,
+                          actionContext.workingFolder, d.getLockLevel(),
+                          d.getRecursive(), itemSpecs);
+      } catch (ToolBadExitCodeException ex) {
+        if (ex.getExitCode() == LockCommand.LOCK_FAILED_EXIT_CODE) {
+          throw new LockFailedException();
         }
+      }
+    }, title);
 
-        final String title = d.getLockLevel() == LockCommand.LockLevel.NONE ?
-                TfPluginBundle.message(TfPluginBundle.KEY_ACTIONS_TFVC_LOCK_PROGRESS_UNLOCKING) :
-                TfPluginBundle.message(TfPluginBundle.KEY_ACTIONS_TFVC_LOCK_PROGRESS_LOCKING);
-        runWithProgress(actionContext, () -> {
-            ProgressManager.getInstance().getProgressIndicator().setIndeterminate(true);
-            List<ExtendedItemInfo> selectedItems = d.getSelectedItems();
-            final List<String> itemSpecs = new ArrayList<>(selectedItems.size());
-            for (ExtendedItemInfo item : selectedItems) {
-                itemSpecs.add(item.getServerItem());
-            }
-
-            logger.info("Calling the lock command");
-            try {
-                CommandUtils.lock(actionContext.serverContext, actionContext.workingFolder,
-                        d.getLockLevel(), d.getRecursive(), itemSpecs);
-            } catch (ToolBadExitCodeException ex) {
-                if (ex.getExitCode() == LockCommand.LOCK_FAILED_EXIT_CODE) {
-                    throw new LockFailedException();
-                }
-            }
-        }, title);
-
-        if (!actionContext.hasErrors()) {
-            logger.info("Files locked/unlocked successfully.");
-            final String message = exitCode == LockItemsDialog.LOCK_EXIT_CODE ?
-                    TfPluginBundle.message(TfPluginBundle.KEY_ACTIONS_TFVC_LOCK_SUCCESS_LOCKED) :
-                    TfPluginBundle.message(TfPluginBundle.KEY_ACTIONS_TFVC_LOCK_SUCCESS_UNLOCKED);
-            showSuccess(actionContext, TfPluginBundle.message(TfPluginBundle.KEY_ACTIONS_TFVC_LOCK_TITLE), message);
-        }
-
-        // Note: errors that exist at this point will be shown by our super class.
+    if (!actionContext.hasErrors()) {
+      logger.info("Files locked/unlocked successfully.");
+      final String message =
+          exitCode == LockItemsDialog.LOCK_EXIT_CODE
+              ? TfPluginBundle.message(
+                    TfPluginBundle.KEY_ACTIONS_TFVC_LOCK_SUCCESS_LOCKED)
+              : TfPluginBundle.message(
+                    TfPluginBundle.KEY_ACTIONS_TFVC_LOCK_SUCCESS_UNLOCKED);
+      showSuccess(
+          actionContext,
+          TfPluginBundle.message(TfPluginBundle.KEY_ACTIONS_TFVC_LOCK_TITLE),
+          message);
     }
+
+    // Note: errors that exist at this point will be shown by our super class.
+  }
 }

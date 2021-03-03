@@ -15,88 +15,93 @@ import com.microsoft.alm.plugin.external.tools.TfTool;
 import com.microsoft.alm.plugin.external.utils.CommandUtils;
 import com.microsoft.alm.plugin.idea.tfvc.core.TFSVcs;
 import com.microsoft.alm.plugin.idea.tfvc.ui.settings.EULADialog;
-import org.jetbrains.annotations.NotNull;
-
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import org.jetbrains.annotations.NotNull;
 
 public class TfvcRootChecker extends VcsRootChecker {
-    private static final Logger ourLogger = Logger.getInstance(TfvcRootChecker.class);
+  private static final Logger ourLogger =
+      Logger.getInstance(TfvcRootChecker.class);
 
-    private final TfvcRootCache myCache = new TfvcRootCache();
+  private final TfvcRootCache myCache = new TfvcRootCache();
 
-    /**
-     * Checks if registered mapping can be used to perform VCS operations. According to the specification, returns
-     * {@code true} if unsure.
-     * <br/>
-     * It is used as optimization in IDEA 2019.2+.
-     */
-    // @Override // only available in IDEA 2019.2
-    public boolean validateRoot(@NotNull String pathString) {
-        Path path = Paths.get(pathString);
-        Path fileName = path.getFileName();
-        if (fileName != null && (isVcsDir(fileName.toString()) || fileName.toString().startsWith("$")))
-            return false;
+  /**
+   * Checks if registered mapping can be used to perform VCS operations.
+   * According to the specification, returns
+   * {@code true} if unsure.
+   * <br/>
+   * It is used as optimization in IDEA 2019.2+.
+   */
+  // @Override // only available in IDEA 2019.2
+  public boolean validateRoot(@NotNull String pathString) {
+    Path path = Paths.get(pathString);
+    Path fileName = path.getFileName();
+    if (fileName != null &&
+        (isVcsDir(fileName.toString()) || fileName.toString().startsWith("$")))
+      return false;
 
-        for (Path component : path) {
-            if (isVcsDir(component.toString()))
-                return false;
-        }
-
-        TfvcRootCache.CachedStatus cachedStatus = myCache.get(path);
-        return cachedStatus == TfvcRootCache.CachedStatus.UNKNOWN
-                || cachedStatus == TfvcRootCache.CachedStatus.IS_MAPPING_ROOT; // known as not a root otherwise
+    for (Path component : path) {
+      if (isVcsDir(component.toString()))
+        return false;
     }
 
-    @Override
-    public boolean isRoot(@NotNull String path) {
-        if (!validateRoot(path))
-            return false;
+    TfvcRootCache.CachedStatus cachedStatus = myCache.get(path);
+    return cachedStatus == TfvcRootCache.CachedStatus.UNKNOWN ||
+        cachedStatus == TfvcRootCache.CachedStatus
+                            .IS_MAPPING_ROOT; // known as not a root otherwise
+  }
 
-        if (StringUtil.isEmpty(TfTool.getLocation()))
-            return false;
+  @Override
+  public boolean isRoot(@NotNull String path) {
+    if (!validateRoot(path))
+      return false;
 
-        TfvcRootCache.CachedStatus cachedStatus = myCache.get(Paths.get(path));
-        switch (cachedStatus) {
-            case IS_MAPPING_ROOT:
-                return true;
-            case NO_ROOT:
-            case UNDER_MAPPING_ROOT:
-                return false;
-        }
+    if (StringUtil.isEmpty(TfTool.getLocation()))
+      return false;
 
-        // Will get here only if cachedStatus == UNKNOWN.
-        return EULADialog.executeWithGuard(null, () -> {
-            Workspace workspace = null;
-            Path workspacePath = Paths.get(path);
-            try {
-                workspace = CommandUtils.getPartialWorkspace(workspacePath, true);
-            } catch (WorkspaceCouldNotBeDeterminedException | ToolAuthenticationException ex) {
-                if (!(ex instanceof WorkspaceCouldNotBeDeterminedException))
-                    ourLogger.warn(ex);
-
-                ourLogger.info("TFVC workspace could not be determined from path \"" + path + "\"");
-            }
-
-            if (workspace == null) {
-                myCache.putNoMappingsFor(workspacePath);
-                return false;
-            }
-
-            myCache.putMappings(workspace.getMappings());
-            return workspace.getMappings().stream()
-                    .anyMatch(mapping -> FileUtil.pathsEqual(path, mapping.getLocalPath()));
-        });
+    TfvcRootCache.CachedStatus cachedStatus = myCache.get(Paths.get(path));
+    switch (cachedStatus) {
+    case IS_MAPPING_ROOT:
+      return true;
+    case NO_ROOT:
+    case UNDER_MAPPING_ROOT:
+      return false;
     }
 
-    @Override
-    public boolean isVcsDir(@NotNull String path) {
-        return path.equalsIgnoreCase("$tf") || path.equalsIgnoreCase(".tf");
-    }
+    // Will get here only if cachedStatus == UNKNOWN.
+    return EULADialog.executeWithGuard(null, () -> {
+      Workspace workspace = null;
+      Path workspacePath = Paths.get(path);
+      try {
+        workspace = CommandUtils.getPartialWorkspace(workspacePath, true);
+      } catch (WorkspaceCouldNotBeDeterminedException |
+               ToolAuthenticationException ex) {
+        if (!(ex instanceof WorkspaceCouldNotBeDeterminedException))
+          ourLogger.warn(ex);
 
-    @NotNull
-    @Override
-    public VcsKey getSupportedVcs() {
-        return TFSVcs.getKey();
-    }
+        ourLogger.info("TFVC workspace could not be determined from path \"" +
+                       path + "\"");
+      }
+
+      if (workspace == null) {
+        myCache.putNoMappingsFor(workspacePath);
+        return false;
+      }
+
+      myCache.putMappings(workspace.getMappings());
+      return workspace.getMappings().stream().anyMatch(
+          mapping -> FileUtil.pathsEqual(path, mapping.getLocalPath()));
+    });
+  }
+
+  @Override
+  public boolean isVcsDir(@NotNull String path) {
+    return path.equalsIgnoreCase("$tf") || path.equalsIgnoreCase(".tf");
+  }
+
+  @NotNull
+  @Override
+  public VcsKey getSupportedVcs() {
+    return TFSVcs.getKey();
+  }
 }

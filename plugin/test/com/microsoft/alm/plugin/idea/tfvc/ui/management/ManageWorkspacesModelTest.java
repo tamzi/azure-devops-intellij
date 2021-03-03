@@ -3,6 +3,22 @@
 
 package com.microsoft.alm.plugin.idea.tfvc.ui.management;
 
+import static org.junit.Assert.assertEquals;
+import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.anyString;
+import static org.mockito.Matchers.eq;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.powermock.api.mockito.PowerMockito.doNothing;
+import static org.powermock.api.mockito.PowerMockito.verifyStatic;
+import static org.powermock.api.mockito.PowerMockito.whenNew;
+
 import com.google.common.collect.ImmutableList;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
@@ -25,6 +41,10 @@ import com.microsoft.alm.plugin.idea.common.ui.common.mocks.MockObserver;
 import com.microsoft.alm.plugin.idea.common.ui.common.treetable.ContentProvider;
 import com.microsoft.alm.plugin.idea.common.utils.IdeaHelper;
 import com.microsoft.alm.plugin.idea.tfvc.ui.ProxySettingsDialog;
+import java.net.URI;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
 import org.apache.commons.lang.StringUtils;
 import org.junit.Before;
 import org.junit.Test;
@@ -36,351 +56,454 @@ import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
-import java.net.URI;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
-
-import static org.junit.Assert.assertEquals;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyString;
-import static org.mockito.Matchers.eq;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-import static org.powermock.api.mockito.PowerMockito.doNothing;
-import static org.powermock.api.mockito.PowerMockito.verifyStatic;
-import static org.powermock.api.mockito.PowerMockito.whenNew;
-
 @RunWith(PowerMockRunner.class)
-@PrepareForTest({ProgressManager.class, VcsUtil.class, Messages.class, ServerContextManager.class, CommandUtils.class,
-        IdeaHelper.class, ManageWorkspacesModel.class, WorkspaceHelper.class})
+@PrepareForTest({ProgressManager.class, VcsUtil.class, Messages.class,
+                 ServerContextManager.class, CommandUtils.class,
+                 IdeaHelper.class, ManageWorkspacesModel.class,
+                 WorkspaceHelper.class})
 @PowerMockIgnore("javax.swing.*")
 public class ManageWorkspacesModelTest extends IdeaAbstractTest {
 
-    @Mock
-    private Project mockProject;
+  @Mock private Project mockProject;
 
-    @Mock
-    private Runnable mockRunnable;
+  @Mock private Runnable mockRunnable;
 
-    @Mock
-    private ProgressManager mockProgressManager;
+  @Mock private ProgressManager mockProgressManager;
 
-    @Mock
-    private ServerContext mockServerContext;
+  @Mock private ServerContext mockServerContext;
 
-    @Mock
-    private ServerContextManager mockServerContextManager;
+  @Mock private ServerContextManager mockServerContextManager;
 
-    @Mock
-    private ProxySettingsDialog mockProxySettingsDialog;
+  @Mock private ProxySettingsDialog mockProxySettingsDialog;
 
-    private ManageWorkspacesModel manageWorkspacesModel;
-    private Workspace workspace1;
-    private List<Workspace> workspaces;
-    private Server server;
+  private ManageWorkspacesModel manageWorkspacesModel;
+  private Workspace workspace1;
+  private List<Workspace> workspaces;
+  private Server server;
 
-    @Before
-    public void setUp() {
-        MockitoAnnotations.initMocks(this);
-        PowerMockito.mockStatic(ProgressManager.class, VcsUtil.class, Messages.class, ServerContextManager.class,
-                CommandUtils.class, IdeaHelper.class, ManageWorkspacesModel.class, WorkspaceHelper.class);
+  @Before
+  public void setUp() {
+    MockitoAnnotations.initMocks(this);
+    PowerMockito.mockStatic(ProgressManager.class, VcsUtil.class,
+                            Messages.class, ServerContextManager.class,
+                            CommandUtils.class, IdeaHelper.class,
+                            ManageWorkspacesModel.class, WorkspaceHelper.class);
 
-        workspace1 = new Workspace("http://server:8080/tfs/defaultcollection", "workspace1", "computerName",
-                "ownerName", "comment for workspace", ImmutableList.of(new Workspace.Mapping("$/root", "/local/path/directory", false)));
-        workspaces = ImmutableList.of(workspace1);
-        server = new Server("http://server:8080/tfs/defaultcollection", workspaces);
+    workspace1 =
+        new Workspace("http://server:8080/tfs/defaultcollection", "workspace1",
+                      "computerName", "ownerName", "comment for workspace",
+                      ImmutableList.of(new Workspace.Mapping(
+                          "$/root", "/local/path/directory", false)));
+    workspaces = ImmutableList.of(workspace1);
+    server = new Server("http://server:8080/tfs/defaultcollection", workspaces);
 
-        when(
-                mockServerContextManager.createContextFromTfvcServerUrl(
-                        workspace1.getServerUri(),
-                        "root",
-                        true))
-                .thenReturn(mockServerContext);
-        when(ServerContextManager.getInstance()).thenReturn(mockServerContextManager);
-        when(ProgressManager.getInstance()).thenReturn(mockProgressManager);
+    when(mockServerContextManager.createContextFromTfvcServerUrl(
+             workspace1.getServerUri(), "root", true))
+        .thenReturn(mockServerContext);
+    when(ServerContextManager.getInstance())
+        .thenReturn(mockServerContextManager);
+    when(ProgressManager.getInstance()).thenReturn(mockProgressManager);
 
-        manageWorkspacesModel = spy(new ManageWorkspacesModel(mockProject));
-    }
+    manageWorkspacesModel = spy(new ManageWorkspacesModel(mockProject));
+  }
 
-    @Test
-    public void testReloadWorkspacesWithProgress_Happy() throws Exception {
-        final MockObserver observer = new MockObserver(manageWorkspacesModel);
-        manageWorkspacesModel.reloadWorkspacesWithProgress(server);
+  @Test
+  public void testReloadWorkspacesWithProgress_Happy() throws Exception {
+    final MockObserver observer = new MockObserver(manageWorkspacesModel);
+    manageWorkspacesModel.reloadWorkspacesWithProgress(server);
 
-        observer.assertAndClearLastUpdate(manageWorkspacesModel, ManageWorkspacesModel.REFRESH_SERVER);
-        verifyStatic(never());
-        Messages.showErrorDialog(any(Project.class), any(String.class), any(String.class));
-    }
+    observer.assertAndClearLastUpdate(manageWorkspacesModel,
+                                      ManageWorkspacesModel.REFRESH_SERVER);
+    verifyStatic(never());
+    Messages.showErrorDialog(any(Project.class), any(String.class),
+                             any(String.class));
+  }
 
-    @Test
-    public void testReloadWorkspacesWithProgress_Exception() throws Exception {
-        final MockObserver observer = new MockObserver(manageWorkspacesModel);
-        when(VcsUtil.runVcsProcessWithProgress(any(VcsRunnable.class), eq(TfPluginBundle.message(TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_RELOAD_MSG, server.getName())), eq(true), eq(mockProject)))
-                .thenThrow(new VcsException(TfPluginBundle.message(TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_RELOAD_ERROR_MSG, server.getName())));
-        manageWorkspacesModel.reloadWorkspacesWithProgress(server);
+  @Test
+  public void testReloadWorkspacesWithProgress_Exception() throws Exception {
+    final MockObserver observer = new MockObserver(manageWorkspacesModel);
+    when(VcsUtil.runVcsProcessWithProgress(
+             any(VcsRunnable.class),
+             eq(TfPluginBundle.message(
+                 TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_RELOAD_MSG,
+                 server.getName())),
+             eq(true), eq(mockProject)))
+        .thenThrow(new VcsException(TfPluginBundle.message(
+            TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_RELOAD_ERROR_MSG,
+            server.getName())));
+    manageWorkspacesModel.reloadWorkspacesWithProgress(server);
 
-        observer.assertAndClearLastUpdate(manageWorkspacesModel, ManageWorkspacesModel.REFRESH_SERVER);
-        verifyStatic(times(1));
-        Messages.showErrorDialog(eq(mockProject), eq(TfPluginBundle.message(TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_RELOAD_ERROR_MSG, server.getName())),
-                eq(TfPluginBundle.message(TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_RELOAD_ERROR_TITLE)));
-    }
+    observer.assertAndClearLastUpdate(manageWorkspacesModel,
+                                      ManageWorkspacesModel.REFRESH_SERVER);
+    verifyStatic(times(1));
+    Messages.showErrorDialog(
+        eq(mockProject),
+        eq(TfPluginBundle.message(
+            TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_RELOAD_ERROR_MSG,
+            server.getName())),
+        eq(TfPluginBundle.message(
+            TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_RELOAD_ERROR_TITLE)));
+  }
 
-    @Test
-    public void testReloadWorkspaces_Happy() throws Exception {
-        final AuthenticationInfo mockAuthInfo = mock(AuthenticationInfo.class);
-        when(mockServerContextManager.getAuthenticationInfo(server.getName(), true)).thenReturn(mockAuthInfo);
+  @Test
+  public void testReloadWorkspaces_Happy() throws Exception {
+    final AuthenticationInfo mockAuthInfo = mock(AuthenticationInfo.class);
+    when(mockServerContextManager.getAuthenticationInfo(server.getName(), true))
+        .thenReturn(mockAuthInfo);
 
-        manageWorkspacesModel.reloadWorkspaces(server);
-        verifyStatic(times(1));
-        CommandUtils.refreshWorkspacesForServer(mockAuthInfo, server.getName());
-    }
+    manageWorkspacesModel.reloadWorkspaces(server);
+    verifyStatic(times(1));
+    CommandUtils.refreshWorkspacesForServer(mockAuthInfo, server.getName());
+  }
 
-    @Test(expected = VcsException.class)
-    public void testReloadWorkspaces_NullAuth() throws Exception {
-        when(mockServerContextManager.getAuthenticationInfo(server.getName(), true)).thenReturn(null);
+  @Test(expected = VcsException.class)
+  public void testReloadWorkspaces_NullAuth() throws Exception {
+    when(mockServerContextManager.getAuthenticationInfo(server.getName(), true))
+        .thenReturn(null);
 
-        manageWorkspacesModel.reloadWorkspaces(server);
-    }
+    manageWorkspacesModel.reloadWorkspaces(server);
+  }
 
-    @Test(expected = VcsException.class)
-    public void testReloadWorkspaces_Exception() throws Exception {
-        doThrow(new RuntimeException()).when(manageWorkspacesModel).getPartialWorkspace(server.getName(), workspace1.getName());
+  @Test(expected = VcsException.class)
+  public void testReloadWorkspaces_Exception() throws Exception {
+    doThrow(new RuntimeException())
+        .when(manageWorkspacesModel)
+        .getPartialWorkspace(server.getName(), workspace1.getName());
 
-        manageWorkspacesModel.reloadWorkspaces(server);
-    }
+    manageWorkspacesModel.reloadWorkspaces(server);
+  }
 
+  @Test
+  public void testDeleteWorkspaceWithProgress_UserCancel() throws Exception {
+    final MockObserver observer = new MockObserver(manageWorkspacesModel);
+    when(
+        Messages.showYesNoDialog(
+            mockProject,
+            TfPluginBundle.message(
+                TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_DELETE_CONFIRM_MSG,
+                workspace1.getName()),
+            TfPluginBundle.message(
+                TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_DELETE_CONFIRM_TITLE),
+            Messages.getWarningIcon()))
+        .thenReturn(Messages.NO);
+    manageWorkspacesModel.deleteWorkspaceWithProgress(workspace1);
 
-    @Test
-    public void testDeleteWorkspaceWithProgress_UserCancel() throws Exception {
-        final MockObserver observer = new MockObserver(manageWorkspacesModel);
-        when(Messages.showYesNoDialog(mockProject, TfPluginBundle.message(TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_DELETE_CONFIRM_MSG, workspace1.getName()),
-                TfPluginBundle.message(TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_DELETE_CONFIRM_TITLE), Messages.getWarningIcon())).thenReturn(Messages.NO);
-        manageWorkspacesModel.deleteWorkspaceWithProgress(workspace1);
+    observer.assertUpdateNeverOccurred(ManageWorkspacesModel.REFRESH_WORKSPACE);
+    verifyStatic(never());
+    VcsUtil.runVcsProcessWithProgress(any(VcsRunnable.class), any(String.class),
+                                      any(Boolean.class), any(Project.class));
+    Messages.showErrorDialog(any(Project.class), any(String.class),
+                             any(String.class));
+  }
 
-        observer.assertUpdateNeverOccurred(ManageWorkspacesModel.REFRESH_WORKSPACE);
-        verifyStatic(never());
-        VcsUtil.runVcsProcessWithProgress(any(VcsRunnable.class), any(String.class), any(Boolean.class), any(Project.class));
-        Messages.showErrorDialog(any(Project.class), any(String.class), any(String.class));
-    }
+  @Test
+  public void testDeleteWorkspaceWithProgress_Happy() throws Exception {
+    final MockObserver observer = new MockObserver(manageWorkspacesModel);
+    when(
+        Messages.showYesNoDialog(
+            mockProject,
+            TfPluginBundle.message(
+                TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_DELETE_CONFIRM_MSG,
+                workspace1.getName()),
+            TfPluginBundle.message(
+                TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_DELETE_CONFIRM_TITLE),
+            Messages.getWarningIcon()))
+        .thenReturn(Messages.YES);
+    manageWorkspacesModel.deleteWorkspaceWithProgress(workspace1);
 
-    @Test
-    public void testDeleteWorkspaceWithProgress_Happy() throws Exception {
-        final MockObserver observer = new MockObserver(manageWorkspacesModel);
-        when(Messages.showYesNoDialog(mockProject, TfPluginBundle.message(TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_DELETE_CONFIRM_MSG, workspace1.getName()),
-                TfPluginBundle.message(TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_DELETE_CONFIRM_TITLE), Messages.getWarningIcon())).thenReturn(Messages.YES);
-        manageWorkspacesModel.deleteWorkspaceWithProgress(workspace1);
+    observer.assertAndClearLastUpdate(manageWorkspacesModel,
+                                      ManageWorkspacesModel.REFRESH_WORKSPACE);
+    verifyStatic(never());
+    Messages.showErrorDialog(any(Project.class), any(String.class),
+                             any(String.class));
+  }
 
-        observer.assertAndClearLastUpdate(manageWorkspacesModel, ManageWorkspacesModel.REFRESH_WORKSPACE);
-        verifyStatic(never());
-        Messages.showErrorDialog(any(Project.class), any(String.class), any(String.class));
-    }
+  @Test
+  public void testDeleteWorkspaceWithProgress_Exception() throws Exception {
+    final MockObserver observer = new MockObserver(manageWorkspacesModel);
+    when(
+        Messages.showYesNoDialog(
+            mockProject,
+            TfPluginBundle.message(
+                TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_DELETE_CONFIRM_MSG,
+                workspace1.getName()),
+            TfPluginBundle.message(
+                TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_DELETE_CONFIRM_TITLE),
+            Messages.getWarningIcon()))
+        .thenReturn(Messages.YES);
+    when(VcsUtil.runVcsProcessWithProgress(
+             any(VcsRunnable.class),
+             eq(TfPluginBundle.message(
+                 TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_DELETE_MSG,
+                 workspace1.getName())),
+             eq(true), eq(mockProject)))
+        .thenThrow(new VcsException(TfPluginBundle.message(
+            TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_DELETE_ERROR_MSG,
+            workspace1.getName())));
+    manageWorkspacesModel.deleteWorkspaceWithProgress(workspace1);
 
-    @Test
-    public void testDeleteWorkspaceWithProgress_Exception() throws Exception {
-        final MockObserver observer = new MockObserver(manageWorkspacesModel);
-        when(Messages.showYesNoDialog(mockProject, TfPluginBundle.message(TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_DELETE_CONFIRM_MSG, workspace1.getName()),
-                TfPluginBundle.message(TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_DELETE_CONFIRM_TITLE), Messages.getWarningIcon())).thenReturn(Messages.YES);
-        when(VcsUtil.runVcsProcessWithProgress(any(VcsRunnable.class), eq(TfPluginBundle.message(TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_DELETE_MSG, workspace1.getName())), eq(true), eq(mockProject)))
-                .thenThrow(new VcsException(TfPluginBundle.message(TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_DELETE_ERROR_MSG, workspace1.getName())));
-        manageWorkspacesModel.deleteWorkspaceWithProgress(workspace1);
+    observer.assertAndClearLastUpdate(manageWorkspacesModel,
+                                      ManageWorkspacesModel.REFRESH_WORKSPACE);
+    verifyStatic(times(1));
+    Messages.showErrorDialog(
+        eq(mockProject),
+        eq(TfPluginBundle.message(
+            TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_DELETE_ERROR_MSG,
+            workspace1.getName())),
+        eq(TfPluginBundle.message(
+            TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_DELETE_ERROR_TITLE)));
+  }
 
-        observer.assertAndClearLastUpdate(manageWorkspacesModel, ManageWorkspacesModel.REFRESH_WORKSPACE);
-        verifyStatic(times(1));
-        Messages.showErrorDialog(eq(mockProject), eq(TfPluginBundle.message(TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_DELETE_ERROR_MSG, workspace1.getName())),
-                eq(TfPluginBundle.message(TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_DELETE_ERROR_TITLE)));
-    }
+  @Test
+  public void testDeleteWorkspace_Happy() throws Exception {
+    doReturn(workspace1)
+        .when(manageWorkspacesModel)
+        .getPartialWorkspace(server.getName(), workspace1.getName());
 
-    @Test
-    public void testDeleteWorkspace_Happy() throws Exception {
-        doReturn(workspace1).when(manageWorkspacesModel).getPartialWorkspace(server.getName(), workspace1.getName());
+    manageWorkspacesModel.deleteWorkspace(workspace1);
+    verifyStatic(times(1));
+    CommandUtils.deleteWorkspace(mockServerContext, workspace1.getName());
+  }
 
-        manageWorkspacesModel.deleteWorkspace(workspace1);
-        verifyStatic(times(1));
-        CommandUtils.deleteWorkspace(mockServerContext, workspace1.getName());
-    }
+  @Test(expected = VcsException.class)
+  public void testDeleteWorkspace_NullWorkspace() throws Exception {
+    doReturn(null)
+        .when(manageWorkspacesModel)
+        .getPartialWorkspace(server.getName(), workspace1.getName());
 
-    @Test(expected = VcsException.class)
-    public void testDeleteWorkspace_NullWorkspace() throws Exception {
-        doReturn(null).when(manageWorkspacesModel).getPartialWorkspace(server.getName(), workspace1.getName());
+    manageWorkspacesModel.deleteWorkspace(workspace1);
+  }
 
-        manageWorkspacesModel.deleteWorkspace(workspace1);
-    }
+  @Test(expected = VcsException.class)
+  public void testDeleteWorkspace_Exception() throws Exception {
+    doThrow(new RuntimeException())
+        .when(manageWorkspacesModel)
+        .getPartialWorkspace(server.getName(), workspace1.getName());
 
-    @Test(expected = VcsException.class)
-    public void testDeleteWorkspace_Exception() throws Exception {
-        doThrow(new RuntimeException()).when(manageWorkspacesModel).getPartialWorkspace(server.getName(), workspace1.getName());
+    manageWorkspacesModel.deleteWorkspace(workspace1);
+  }
 
-        manageWorkspacesModel.deleteWorkspace(workspace1);
-    }
+  @Test
+  public void testEditWorkspaceWithProgress_Happy() throws Exception {
+    manageWorkspacesModel.editWorkspaceWithProgress(workspace1, mockRunnable);
 
-    @Test
-    public void testEditWorkspaceWithProgress_Happy() throws Exception {
-        manageWorkspacesModel.editWorkspaceWithProgress(workspace1, mockRunnable);
+    verifyStatic(never());
+    Messages.showErrorDialog(any(Project.class), any(String.class),
+                             any(String.class));
+  }
 
-        verifyStatic(never());
-        Messages.showErrorDialog(any(Project.class), any(String.class), any(String.class));
-    }
+  @Test
+  public void testEditWorkspaceWithProgress_Exception() throws Exception {
+    when(VcsUtil.runVcsProcessWithProgress(
+             any(VcsRunnable.class),
+             eq(TfPluginBundle.message(
+                 TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_EDIT_MSG,
+                 workspace1.getName())),
+             eq(true), eq(mockProject)))
+        .thenThrow(new VcsException(TfPluginBundle.message(
+            TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_EDIT_ERROR_MSG,
+            workspace1.getName())));
+    manageWorkspacesModel.editWorkspaceWithProgress(workspace1, mockRunnable);
 
-    @Test
-    public void testEditWorkspaceWithProgress_Exception() throws Exception {
-        when(VcsUtil.runVcsProcessWithProgress(any(VcsRunnable.class), eq(TfPluginBundle.message(TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_EDIT_MSG, workspace1.getName())), eq(true), eq(mockProject)))
-                .thenThrow(new VcsException(TfPluginBundle.message(TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_EDIT_ERROR_MSG, workspace1.getName())));
-        manageWorkspacesModel.editWorkspaceWithProgress(workspace1, mockRunnable);
+    verifyStatic(times(1));
+    Messages.showErrorDialog(
+        eq(mockProject),
+        eq(TfPluginBundle.message(
+            TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_EDIT_ERROR_MSG,
+            workspace1.getName())),
+        eq(TfPluginBundle.message(
+            TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_EDIT_ERROR_TITLE)));
+  }
 
-        verifyStatic(times(1));
-        Messages.showErrorDialog(eq(mockProject), eq(TfPluginBundle.message(TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_EDIT_ERROR_MSG, workspace1.getName())),
-                eq(TfPluginBundle.message(TfPluginBundle.KEY_TFVC_MANAGE_WORKSPACES_EDIT_ERROR_TITLE)));
-    }
+  @Test
+  public void testEditWorkspace_Happy() throws Exception {
+    final AuthenticationInfo mockAuthInfo = mock(AuthenticationInfo.class);
+    when(mockServerContextManager.getAuthenticationInfo(
+             UrlHelper.createUri(server.getName()), true))
+        .thenReturn(mockAuthInfo);
+    when(CommandUtils.getDetailedWorkspace(server.getName(),
+                                           workspace1.getName(), mockAuthInfo))
+        .thenReturn(workspace1);
 
-    @Test
-    public void testEditWorkspace_Happy() throws Exception {
-        final AuthenticationInfo mockAuthInfo = mock(AuthenticationInfo.class);
-        when(mockServerContextManager.getAuthenticationInfo(UrlHelper.createUri(server.getName()), true))
-                .thenReturn(mockAuthInfo);
-        when(CommandUtils.getDetailedWorkspace(server.getName(), workspace1.getName(), mockAuthInfo)).thenReturn(workspace1);
+    manageWorkspacesModel.editWorkspace(workspace1, mockRunnable);
+    verifyStatic(times(1));
+    IdeaHelper.runOnUIThread(any(Runnable.class), eq(true));
+  }
 
-        manageWorkspacesModel.editWorkspace(workspace1, mockRunnable);
-        verifyStatic(times(1));
-        IdeaHelper.runOnUIThread(any(Runnable.class), eq(true));
-    }
+  @Test(expected = VcsException.class)
+  public void testEditWorkspace_NullWorkspace() throws Exception {
+    when(CommandUtils.getDetailedWorkspace(eq(server.getName()),
+                                           eq(workspace1.getName()),
+                                           any(AuthenticationInfo.class)))
+        .thenReturn(null);
 
-    @Test(expected = VcsException.class)
-    public void testEditWorkspace_NullWorkspace() throws Exception {
-        when(CommandUtils.getDetailedWorkspace(eq(server.getName()), eq(workspace1.getName()), any(AuthenticationInfo.class))).thenReturn(null);
+    manageWorkspacesModel.editWorkspace(workspace1, mockRunnable);
+  }
 
-        manageWorkspacesModel.editWorkspace(workspace1, mockRunnable);
-    }
+  @Test(expected = VcsException.class)
+  public void testEditWorkspace_NullContext() throws Exception {
+    doReturn(workspace1)
+        .when(manageWorkspacesModel)
+        .getPartialWorkspace(server.getName(), workspace1.getName());
+    when(mockServerContextManager.createContextFromTfvcServerUrl(
+             workspace1.getServerUri(), "root", true))
+        .thenReturn(null);
 
-    @Test(expected = VcsException.class)
-    public void testEditWorkspace_NullContext() throws Exception {
-        doReturn(workspace1).when(manageWorkspacesModel).getPartialWorkspace(server.getName(), workspace1.getName());
-        when(mockServerContextManager.createContextFromTfvcServerUrl(workspace1.getServerUri(), "root", true))
-                .thenReturn(null);
+    manageWorkspacesModel.editWorkspace(workspace1, mockRunnable);
+  }
 
-        manageWorkspacesModel.editWorkspace(workspace1, mockRunnable);
-    }
+  @Test(expected = VcsException.class)
+  public void testEditWorkspace_Exception() throws Exception {
+    doThrow(new RuntimeException())
+        .when(manageWorkspacesModel)
+        .getPartialWorkspace(server.getName(), workspace1.getName());
 
-    @Test(expected = VcsException.class)
-    public void testEditWorkspace_Exception() throws Exception {
-        doThrow(new RuntimeException()).when(manageWorkspacesModel).getPartialWorkspace(server.getName(), workspace1.getName());
+    manageWorkspacesModel.editWorkspace(workspace1, mockRunnable);
+  }
 
-        manageWorkspacesModel.editWorkspace(workspace1, mockRunnable);
-    }
+  /**
+   * This test verifies that {@link
+   * ManageWorkspacesModel#editWorkspace(Workspace, Runnable)} passes actual
+   * server name into {@link CommandUtils#getDetailedWorkspace(String, String,
+   * AuthenticationInfo)}, and not a formatted URL. <p> I.e. spaces in the
+   * server/collection name should be preserved and not turned into %20. <p> It
+   * is currently enough to verify that no exception is thrown during the edit
+   * method call.
+   */
+  @Test
+  public void testEditWorkspace_CollectionWithSpaces() throws VcsException {
+    final String collectionName = "http://tfs-server/Collection With Spaces";
+    final URI collectionUrl =
+        URI.create("http://tfs-server/Collection%20With%20Spaces");
+    Workspace workspace =
+        new Workspace(collectionName, "workspace1", "computerName", "ownerName",
+                      "comment for workspace",
+                      ImmutableList.of(new Workspace.Mapping(
+                          "$/root", "/local/path/directory", false)));
 
-    /**
-     * This test verifies that {@link ManageWorkspacesModel#editWorkspace(Workspace, Runnable)} passes actual server
-     * name into {@link CommandUtils#getDetailedWorkspace(String, String, AuthenticationInfo)}, and not a formatted URL.
-     * <p>
-     * I.e. spaces in the server/collection name should be preserved and not turned into %20.
-     * <p>
-     * It is currently enough to verify that no exception is thrown during the edit method call.
-     */
-    @Test
-    public void testEditWorkspace_CollectionWithSpaces() throws VcsException {
-        final String collectionName = "http://tfs-server/Collection With Spaces";
-        final URI collectionUrl = URI.create("http://tfs-server/Collection%20With%20Spaces");
-        Workspace workspace = new Workspace(
-                collectionName,
-                "workspace1",
-                "computerName",
-                "ownerName",
-                "comment for workspace",
-                ImmutableList.of(new Workspace.Mapping("$/root", "/local/path/directory", false)));
+    when(CommandUtils.getDetailedWorkspace(collectionName, workspace.getName(),
+                                           null))
+        .thenReturn(workspace);
+    when(mockServerContextManager.createContextFromTfvcServerUrl(collectionUrl,
+                                                                 "root", true))
+        .thenReturn(mockServerContext);
 
-        when(CommandUtils.getDetailedWorkspace(collectionName, workspace.getName(), null))
-                .thenReturn(workspace);
-        when(mockServerContextManager.createContextFromTfvcServerUrl(collectionUrl, "root", true))
-                .thenReturn(mockServerContext);
+    manageWorkspacesModel.editWorkspace(workspace, mockRunnable);
+  }
 
-        manageWorkspacesModel.editWorkspace(workspace, mockRunnable);
-    }
+  @Test
+  public void testEditProxy_Changed() throws Exception {
+    final MockObserver observer = new MockObserver(manageWorkspacesModel);
+    when(WorkspaceHelper.getProxyServer(server.getName()))
+        .thenReturn(StringUtils.EMPTY);
+    doNothing().when(WorkspaceHelper.class, "setProxyServer", anyString(),
+                     anyString());
+    when(mockProxySettingsDialog.showAndGet()).thenReturn(true);
+    when(mockProxySettingsDialog.getProxyUri())
+        .thenReturn("http://testUri.com");
+    whenNew(ProxySettingsDialog.class)
+        .withArguments(mockProject, server.getName(), StringUtils.EMPTY)
+        .thenReturn(mockProxySettingsDialog);
 
-    @Test
-    public void testEditProxy_Changed() throws Exception {
-        final MockObserver observer = new MockObserver(manageWorkspacesModel);
-        when(WorkspaceHelper.getProxyServer(server.getName())).thenReturn(StringUtils.EMPTY);
-        doNothing().when(WorkspaceHelper.class, "setProxyServer", anyString(), anyString());
-        when(mockProxySettingsDialog.showAndGet()).thenReturn(true);
-        when(mockProxySettingsDialog.getProxyUri()).thenReturn("http://testUri.com");
-        whenNew(ProxySettingsDialog.class).withArguments(mockProject, server.getName(), StringUtils.EMPTY).thenReturn(mockProxySettingsDialog);
+    manageWorkspacesModel.editProxy(server);
+    observer.assertAndClearLastUpdate(manageWorkspacesModel,
+                                      ManageWorkspacesModel.REFRESH_SERVER);
+    verifyStatic(times(1));
+    WorkspaceHelper.setProxyServer(server.getName(), "http://testUri.com");
+  }
 
-        manageWorkspacesModel.editProxy(server);
-        observer.assertAndClearLastUpdate(manageWorkspacesModel, ManageWorkspacesModel.REFRESH_SERVER);
-        verifyStatic(times(1));
-        WorkspaceHelper.setProxyServer(server.getName(), "http://testUri.com");
-    }
+  @Test
+  public void testEditProxy_Canceled() throws Exception {
+    final MockObserver observer = new MockObserver(manageWorkspacesModel);
+    when(WorkspaceHelper.getProxyServer(server.getName()))
+        .thenReturn(StringUtils.EMPTY);
+    when(mockProxySettingsDialog.showAndGet()).thenReturn(false);
+    whenNew(ProxySettingsDialog.class)
+        .withArguments(mockProject, server.getName(), StringUtils.EMPTY)
+        .thenReturn(mockProxySettingsDialog);
 
-    @Test
-    public void testEditProxy_Canceled() throws Exception {
-        final MockObserver observer = new MockObserver(manageWorkspacesModel);
-        when(WorkspaceHelper.getProxyServer(server.getName())).thenReturn(StringUtils.EMPTY);
-        when(mockProxySettingsDialog.showAndGet()).thenReturn(false);
-        whenNew(ProxySettingsDialog.class).withArguments(mockProject, server.getName(), StringUtils.EMPTY).thenReturn(mockProxySettingsDialog);
+    manageWorkspacesModel.editProxy(server);
+    observer.assertUpdateNeverOccurred(ManageWorkspacesModel.REFRESH_SERVER);
+    verify(mockProxySettingsDialog, never()).getProxyUri();
+    verifyStatic(never());
+    WorkspaceHelper.setProxyServer(server.getName(), "http://testUri.com");
+  }
 
-        manageWorkspacesModel.editProxy(server);
-        observer.assertUpdateNeverOccurred(ManageWorkspacesModel.REFRESH_SERVER);
-        verify(mockProxySettingsDialog, never()).getProxyUri();
-        verifyStatic(never());
-        WorkspaceHelper.setProxyServer(server.getName(), "http://testUri.com");
-    }
+  @Test
+  public void testGetPartialWorkspace_Local() {
+    when(CommandUtils.getPartialWorkspace(server.getName(),
+                                          workspace1.getName()))
+        .thenReturn(workspace1);
+    assertEquals(workspace1, manageWorkspacesModel.getPartialWorkspace(
+                                 server.getName(), workspace1.getName()));
+  }
 
-    @Test
-    public void testGetPartialWorkspace_Local() {
-        when(CommandUtils.getPartialWorkspace(server.getName(), workspace1.getName())).thenReturn(workspace1);
-        assertEquals(workspace1, manageWorkspacesModel.getPartialWorkspace(server.getName(), workspace1.getName()));
-    }
+  @Test
+  public void testGetPartialWorkspace_Server() {
+    final AuthenticationInfo mockAuthInfo = mock(AuthenticationInfo.class);
+    when(CommandUtils.getPartialWorkspace(server.getName(),
+                                          workspace1.getName()))
+        .thenThrow(new ToolAuthenticationException());
+    when(CommandUtils.getPartialWorkspace(server.getName(),
+                                          workspace1.getName(), mockAuthInfo))
+        .thenReturn(workspace1);
+    when(mockServerContextManager.getAuthenticationInfo(server.getName(), true))
+        .thenReturn(mockAuthInfo);
+    assertEquals(workspace1, manageWorkspacesModel.getPartialWorkspace(
+                                 server.getName(), workspace1.getName()));
+  }
 
-    @Test
-    public void testGetPartialWorkspace_Server() {
-        final AuthenticationInfo mockAuthInfo = mock(AuthenticationInfo.class);
-        when(CommandUtils.getPartialWorkspace(server.getName(), workspace1.getName())).thenThrow(new ToolAuthenticationException());
-        when(CommandUtils.getPartialWorkspace(server.getName(), workspace1.getName(), mockAuthInfo)).thenReturn(workspace1);
-        when(mockServerContextManager.getAuthenticationInfo(server.getName(), true)).thenReturn(mockAuthInfo);
-        assertEquals(workspace1, manageWorkspacesModel.getPartialWorkspace(server.getName(), workspace1.getName()));
-    }
+  @Test
+  public void testServerWorkspaceContentProvider_getRoots() {
+    List<Server> servers = ImmutableList.of(
+        server, new Server("server2", Collections.EMPTY_LIST),
+        new Server("aServer",
+                   ImmutableList.of(new Workspace(
+                       "server3", "workspace2", "computerName", "ownerName",
+                       "comment for workspace",
+                       ImmutableList.of(new Workspace.Mapping(
+                           "$/root", "/local/path/directory", false))))));
+    ContentProvider<Object> provider =
+        manageWorkspacesModel.getContextProvider();
+    when(CommandUtils.getAllWorkspaces(null)).thenReturn(servers);
 
-    @Test
-    public void testServerWorkspaceContentProvider_getRoots() {
-        List<Server> servers = ImmutableList.of(server, new Server("server2", Collections.EMPTY_LIST), new Server("aServer",
-                ImmutableList.of(new Workspace("server3", "workspace2", "computerName",
-                        "ownerName", "comment for workspace", ImmutableList.of(new Workspace.Mapping("$/root", "/local/path/directory", false))))));
-        ContentProvider<Object> provider = manageWorkspacesModel.getContextProvider();
-        when(CommandUtils.getAllWorkspaces(null)).thenReturn(servers);
+    Object[] returnedList = provider.getRoots().toArray();
+    assertEquals(3, returnedList.length);
+    assertEquals("aServer", ((Server)returnedList[0]).getName());
+    assertEquals(server.getName(), ((Server)returnedList[1]).getName());
+    assertEquals("server2", ((Server)returnedList[2]).getName());
+  }
 
-        Object[] returnedList = provider.getRoots().toArray();
-        assertEquals(3, returnedList.length);
-        assertEquals("aServer", ((Server) returnedList[0]).getName());
-        assertEquals(server.getName(), ((Server) returnedList[1]).getName());
-        assertEquals("server2", ((Server) returnedList[2]).getName());
-    }
+  @Test
+  public void testServerWorkspaceContentProvider_getChildren() {
+    Server server = new Server(
+        "server",
+        ImmutableList.of(
+            workspace1,
+            new Workspace("server", "workspace0", "computerName", "ownerName",
+                          "comment for workspace",
+                          ImmutableList.of(new Workspace.Mapping(
+                              "$/root", "/local/path/directory", false))),
+            new Workspace("server", "aWorkspace", "computerName", "ownerName",
+                          "comment for workspace",
+                          ImmutableList.of(new Workspace.Mapping(
+                              "$/root", "/local/path/directory", false)))));
+    ContentProvider<Object> provider =
+        manageWorkspacesModel.getContextProvider();
 
-    @Test
-    public void testServerWorkspaceContentProvider_getChildren() {
-        Server server = new Server("server", ImmutableList.of(workspace1, new Workspace("server", "workspace0", "computerName",
-                        "ownerName", "comment for workspace", ImmutableList.of(new Workspace.Mapping("$/root", "/local/path/directory", false))),
-                new Workspace("server", "aWorkspace", "computerName",
-                        "ownerName", "comment for workspace", ImmutableList.of(new Workspace.Mapping("$/root", "/local/path/directory", false)))));
-        ContentProvider<Object> provider = manageWorkspacesModel.getContextProvider();
+    Object[] returnedList = provider.getChildren(server).toArray();
+    assertEquals(3, returnedList.length);
+    assertEquals("aWorkspace", ((Workspace)returnedList[0]).getName());
+    assertEquals("workspace0", ((Workspace)returnedList[1]).getName());
+    assertEquals("workspace1", ((Workspace)returnedList[2]).getName());
+  }
 
-        Object[] returnedList = provider.getChildren(server).toArray();
-        assertEquals(3, returnedList.length);
-        assertEquals("aWorkspace", ((Workspace) returnedList[0]).getName());
-        assertEquals("workspace0", ((Workspace) returnedList[1]).getName());
-        assertEquals("workspace1", ((Workspace) returnedList[2]).getName());
-    }
+  @Test
+  public void testServerWorkspaceContentProvider_getChildren_Error() {
+    ContentProvider<Object> provider =
+        manageWorkspacesModel.getContextProvider();
 
-    @Test
-    public void testServerWorkspaceContentProvider_getChildren_Error() {
-        ContentProvider<Object> provider = manageWorkspacesModel.getContextProvider();
-
-        Collection returnedList = provider.getChildren(mockProgressManager);
-        assertEquals(0, returnedList.size());
-    }
+    Collection returnedList = provider.getChildren(mockProgressManager);
+    assertEquals(0, returnedList.size());
+  }
 }

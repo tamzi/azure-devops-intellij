@@ -38,75 +38,92 @@ import com.microsoft.alm.plugin.external.models.PendingChange;
 import com.microsoft.alm.plugin.external.models.ServerStatusType;
 import com.microsoft.alm.plugin.idea.tfvc.core.TFSVcs;
 import com.microsoft.alm.plugin.idea.tfvc.core.TfvcClient;
-import org.jetbrains.annotations.Nullable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.List;
+import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Rename a file or a directory using the tf command line
  */
 public class RenameFileDirectory {
-    public static final Logger logger = LoggerFactory.getLogger(RenameFileDirectory.class);
+  public static final Logger logger =
+      LoggerFactory.getLogger(RenameFileDirectory.class);
 
-    public static void execute(final PsiElement element, final String newName, final UsageInfo[] usages,
-                               @Nullable final RefactoringElementListener listener) throws IncorrectOperationException {
-        try {
-            final VirtualFile virtualFile;
-            if (element instanceof PsiFile) {
-                logger.info("Renaming file...");
-                virtualFile = ((PsiFile) element).getVirtualFile();
-            } else if (element instanceof PsiDirectory) {
-                logger.info("Renaming directory...");
-                virtualFile = ((PsiDirectory) element).getVirtualFile();
-            } else {
-                // should never reach here since we check if file/directory before making a rename
-                logger.warn("RenameFile: failed to find proper object to rename: " + element.getClass());
-                throw new IncorrectOperationException("Can't perform rename on objects other than files and directories");
-            }
+  public static void
+  execute(final PsiElement element, final String newName,
+          final UsageInfo[] usages,
+          @Nullable final RefactoringElementListener listener)
+      throws IncorrectOperationException {
+    try {
+      final VirtualFile virtualFile;
+      if (element instanceof PsiFile) {
+        logger.info("Renaming file...");
+        virtualFile = ((PsiFile)element).getVirtualFile();
+      } else if (element instanceof PsiDirectory) {
+        logger.info("Renaming directory...");
+        virtualFile = ((PsiDirectory)element).getVirtualFile();
+      } else {
+        // should never reach here since we check if file/directory before
+        // making a rename
+        logger.warn("RenameFile: failed to find proper object to rename: " +
+                    element.getClass());
+        throw new IncorrectOperationException(
+            "Can't perform rename on objects other than files and directories");
+      }
 
-            final String currentPath = virtualFile.getPath();
-            final String parentDirectory = virtualFile.getParent().getPath();
-            final String newPath = Path.combine(parentDirectory, newName);
-            final Project project = element.getProject();
+      final String currentPath = virtualFile.getPath();
+      final String parentDirectory = virtualFile.getParent().getPath();
+      final String newPath = Path.combine(parentDirectory, newName);
+      final Project project = element.getProject();
 
-            // a single file may have 0, 1, or 2 pending changes to it
-            // 0 - file has not been touched in the local workspace
-            // 1 - file has versioned OR unversioned changes
-            // 2 - file has versioned AND unversioned changes (rare but can happen)
-            TfvcClient client = TfvcClient.getInstance(project);
-            ServerContext serverContext = TFSVcs.getInstance(project).getServerContext(true);
-            List<PendingChange> pendingChanges = client.getStatusForFiles(serverContext, ImmutableList.of(currentPath));
+      // a single file may have 0, 1, or 2 pending changes to it
+      // 0 - file has not been touched in the local workspace
+      // 1 - file has versioned OR unversioned changes
+      // 2 - file has versioned AND unversioned changes (rare but can happen)
+      TfvcClient client = TfvcClient.getInstance(project);
+      ServerContext serverContext =
+          TFSVcs.getInstance(project).getServerContext(true);
+      List<PendingChange> pendingChanges = client.getStatusForFiles(
+          serverContext, ImmutableList.of(currentPath));
 
-            // ** Rename logic **
-            // If 1 change and it's an add that means it's a new unversioned file so rename thru the file system
-            // Anything else can be renamed
-            // Deleted files should not be at this point since IDE disables rename option for them
-            if (pendingChanges.size() == 1 && pendingChanges.get(0).getChangeTypes().contains(ServerStatusType.ADD)) {
-                logger.info("Renaming unversioned file thru file system");
-                RenameUtil.doRenameGenericNamedElement(element, newName, usages, listener);
-            } else {
-                logger.info("Renaming file thru tf commandline");
-                if (!client.renameFile(
-                        serverContext,
-                        Paths.get(currentPath),
-                        Paths.get(newPath)))
-                    throw new IncorrectOperationException("Couldn't rename file \"" + currentPath + "\" to \"" + newPath + "\"");
+      // ** Rename logic **
+      // If 1 change and it's an add that means it's a new unversioned file so
+      // rename thru the file system Anything else can be renamed Deleted files
+      // should not be at this point since IDE disables rename option for them
+      if (pendingChanges.size() == 1 &&
+          pendingChanges.get(0).getChangeTypes().contains(
+              ServerStatusType.ADD)) {
+        logger.info("Renaming unversioned file thru file system");
+        RenameUtil.doRenameGenericNamedElement(element, newName, usages,
+                                               listener);
+      } else {
+        logger.info("Renaming file thru tf commandline");
+        if (!client.renameFile(serverContext, Paths.get(currentPath),
+                               Paths.get(newPath)))
+          throw new IncorrectOperationException("Couldn't rename file \"" +
+                                                currentPath + "\" to \"" +
+                                                newPath + "\"");
 
-                // this alerts that a rename has taken place so any additional processing can take place
-                final VFileEvent event = new VFilePropertyChangeEvent(element.getManager(), virtualFile, VirtualFile.PROP_NAME, currentPath, newName, false);
-                PersistentFS.getInstance().processEvents(Collections.singletonList(event));
-            }
-        } catch (Throwable t) {
-            logger.warn("renameElement experienced a failure while trying to rename a file", t);
-            throw new IncorrectOperationException(t);
-        }
-
-        if (listener != null) {
-            listener.elementRenamed(element);
-        }
+        // this alerts that a rename has taken place so any additional
+        // processing can take place
+        final VFileEvent event = new VFilePropertyChangeEvent(
+            element.getManager(), virtualFile, VirtualFile.PROP_NAME,
+            currentPath, newName, false);
+        PersistentFS.getInstance().processEvents(
+            Collections.singletonList(event));
+      }
+    } catch (Throwable t) {
+      logger.warn(
+          "renameElement experienced a failure while trying to rename a file",
+          t);
+      throw new IncorrectOperationException(t);
     }
+
+    if (listener != null) {
+      listener.elementRenamed(element);
+    }
+  }
 }

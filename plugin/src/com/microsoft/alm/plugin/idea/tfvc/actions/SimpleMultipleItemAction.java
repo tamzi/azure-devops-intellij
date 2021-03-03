@@ -5,18 +5,19 @@ package com.microsoft.alm.plugin.idea.tfvc.actions;
 
 import com.microsoft.alm.plugin.external.models.ItemInfo;
 import com.microsoft.alm.plugin.idea.tfvc.core.TfvcClient;
-
 import java.util.List;
 
 abstract class SimpleMultipleItemAction extends MultipleItemAction<ItemInfo> {
 
-    public SimpleMultipleItemAction(String title, String message) {
-        super(title, message);
-    }
+  public SimpleMultipleItemAction(String title, String message) {
+    super(title, message);
+  }
 
-    @Override
-    protected void loadItemInfoCollection(MultipleItemActionContext context, List<String> localPaths) {
-        TfvcClient client = TfvcClient.getInstance(context.project);
-        client.getLocalItemsInfo(context.serverContext, localPaths, context.itemInfos::add);
-    }
+  @Override
+  protected void loadItemInfoCollection(MultipleItemActionContext context,
+                                        List<String> localPaths) {
+    TfvcClient client = TfvcClient.getInstance(context.project);
+    client.getLocalItemsInfo(context.serverContext, localPaths,
+                             context.itemInfos::add);
+  }
 }
