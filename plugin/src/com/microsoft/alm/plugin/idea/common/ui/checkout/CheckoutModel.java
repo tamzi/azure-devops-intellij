@@ -15,133 +15,122 @@ import com.microsoft.alm.plugin.idea.common.ui.common.PageModelImpl;
  * This class is the overall model for the Checkout dialog UI.
  * It manages the 2 other models for VSO and TFS.
  */
-public class CheckoutModel extends PageModelImpl implements VcsSpecificCheckoutModel{
-    private boolean vsoSelected = true;
-    private boolean cloneEnabledForVso = false;
-    private boolean cloneEnabledForTfs = false;
-    private final CheckoutPageModel vsoModel;
-    private final CheckoutPageModel tfsModel;
-    private final Project project;
-    private final CheckoutProvider.Listener listener;
-    private final VcsSpecificCheckoutModel specificCheckoutModel;
+public class CheckoutModel
+    extends PageModelImpl implements VcsSpecificCheckoutModel {
+  private boolean vsoSelected = true;
+  private boolean cloneEnabledForVso = false;
+  private boolean cloneEnabledForTfs = false;
+  private final CheckoutPageModel vsoModel;
+  private final CheckoutPageModel tfsModel;
+  private final Project project;
+  private final CheckoutProvider.Listener listener;
+  private final VcsSpecificCheckoutModel specificCheckoutModel;
 
-    public final static String PROP_VSO_SELECTED = "vsoSelected";
-    public final static String PROP_CLONE_ENABLED = "cloneEnabled";
+  public final static String PROP_VSO_SELECTED = "vsoSelected";
+  public final static String PROP_CLONE_ENABLED = "cloneEnabled";
 
-    public CheckoutModel(final Project project, final CheckoutProvider.Listener listener, final VcsSpecificCheckoutModel specificCheckoutModel) {
-        this(project, listener, specificCheckoutModel, null, null, true);
+  public CheckoutModel(final Project project,
+                       final CheckoutProvider.Listener listener,
+                       final VcsSpecificCheckoutModel specificCheckoutModel) {
+    this(project, listener, specificCheckoutModel, null, null, true);
+  }
+
+  @VisibleForTesting
+  public CheckoutModel(final Project project,
+                       final CheckoutProvider.Listener listener,
+                       final VcsSpecificCheckoutModel specificCheckoutModel,
+                       final CheckoutPageModel vsoModel,
+                       final CheckoutPageModel tfsModel,
+                       final boolean autoLoad) {
+    this.project = project;
+    this.listener = listener;
+    this.specificCheckoutModel = specificCheckoutModel;
+    this.vsoModel =
+        vsoModel == null ? new VsoCheckoutPageModel(this, autoLoad) : vsoModel;
+    this.tfsModel =
+        tfsModel == null ? new TfsCheckoutPageModel(this) : tfsModel;
+    updateCloneEnabled();
+  }
+
+  public boolean isVsoSelected() { return vsoSelected; }
+
+  public void setVsoSelected(final boolean value) {
+    if (vsoSelected != value) {
+      vsoSelected = value;
+      super.setChangedAndNotify(PROP_VSO_SELECTED);
     }
+  }
 
-    @VisibleForTesting
-    public CheckoutModel(final Project project, final CheckoutProvider.Listener listener, final VcsSpecificCheckoutModel specificCheckoutModel,
-                            final CheckoutPageModel vsoModel, final CheckoutPageModel tfsModel, final boolean autoLoad) {
-        this.project = project;
-        this.listener = listener;
-        this.specificCheckoutModel = specificCheckoutModel;
-        this.vsoModel = vsoModel == null ? new VsoCheckoutPageModel(this, autoLoad) : vsoModel;
-        this.tfsModel = tfsModel == null ? new TfsCheckoutPageModel(this) : tfsModel;
-        updateCloneEnabled();
+  public boolean isCloneEnabled() {
+    if (isVsoSelected()) {
+      return cloneEnabledForVso;
+    } else {
+      return cloneEnabledForTfs;
     }
+  }
 
-    public boolean isVsoSelected() {
-        return vsoSelected;
+  public void updateCloneEnabled() {
+    if (vsoModel != null) {
+      setCloneEnabledForVso(vsoModel.isConnected());
     }
+    if (tfsModel != null) {
+      setCloneEnabledForTfs(tfsModel.isConnected());
+    }
+  }
 
-    public void setVsoSelected(final boolean value) {
-        if (vsoSelected != value) {
-            vsoSelected = value;
-            super.setChangedAndNotify(PROP_VSO_SELECTED);
-        }
+  protected void setCloneEnabledForTfs(final boolean value) {
+    if (cloneEnabledForTfs != value) {
+      cloneEnabledForTfs = value;
+      super.setChangedAndNotify(PROP_CLONE_ENABLED);
     }
+  }
 
-    public boolean isCloneEnabled() {
-        if (isVsoSelected()) {
-            return cloneEnabledForVso;
-        } else {
-            return cloneEnabledForTfs;
-        }
+  protected void setCloneEnabledForVso(final boolean value) {
+    if (cloneEnabledForVso != value) {
+      cloneEnabledForVso = value;
+      super.setChangedAndNotify(PROP_CLONE_ENABLED);
     }
+  }
 
-    public void updateCloneEnabled() {
-        if (vsoModel != null) {
-            setCloneEnabledForVso(vsoModel.isConnected());
-        }
-        if (tfsModel != null) {
-            setCloneEnabledForTfs(tfsModel.isConnected());
-        }
-    }
+  public CheckoutPageModel getVsoModel() { return this.vsoModel; }
 
-    protected void setCloneEnabledForTfs(final boolean value) {
-        if (cloneEnabledForTfs != value) {
-            cloneEnabledForTfs = value;
-            super.setChangedAndNotify(PROP_CLONE_ENABLED);
-        }
-    }
+  public CheckoutPageModel getTfsModel() { return this.tfsModel; }
 
-    protected void setCloneEnabledForVso(final boolean value) {
-        if (cloneEnabledForVso != value) {
-            cloneEnabledForVso = value;
-            super.setChangedAndNotify(PROP_CLONE_ENABLED);
-        }
-    }
+  public Project getProject() { return project; }
 
-    public CheckoutPageModel getVsoModel() {
-        return this.vsoModel;
-    }
+  public CheckoutProvider.Listener getListener() { return listener; }
 
-    public CheckoutPageModel getTfsModel() {
-        return this.tfsModel;
-    }
+  public void dispose() {
+    vsoModel.dispose();
+    tfsModel.dispose();
+  }
 
-    public Project getProject() {
-        return project;
-    }
+  // Implement VcsSpecificCheckoutModel and redirect calls to the specific
+  // implementation BEGIN VcsSpecificCheckoutModel
+  @Override
+  public void doCheckout(Project project, CheckoutProvider.Listener listener,
+                         ServerContext context, VirtualFile destinationParent,
+                         String directoryName, String parentDirectory,
+                         boolean isAdvancedChecked,
+                         boolean isTfvcServerCheckout) {
+    specificCheckoutModel.doCheckout(
+        project, listener, context, destinationParent, directoryName,
+        parentDirectory, isAdvancedChecked, isTfvcServerCheckout);
+  }
 
-    public CheckoutProvider.Listener getListener() {
-        return listener;
-    }
+  @Override
+  public String getButtonText() {
+    return specificCheckoutModel.getButtonText();
+  }
 
-    public void dispose() {
-        vsoModel.dispose();
-        tfsModel.dispose();
-    }
+  @Override
+  public String getRepositoryName(final ServerContext context) {
+    return specificCheckoutModel.getRepositoryName(context);
+  }
 
-    // Implement VcsSpecificCheckoutModel and redirect calls to the specific implementation
-    // BEGIN VcsSpecificCheckoutModel
-    @Override
-    public void doCheckout(
-            Project project,
-            CheckoutProvider.Listener listener,
-            ServerContext context,
-            VirtualFile destinationParent,
-            String directoryName,
-            String parentDirectory,
-            boolean isAdvancedChecked,
-            boolean isTfvcServerCheckout) {
-        specificCheckoutModel.doCheckout(
-                project,
-                listener,
-                context,
-                destinationParent,
-                directoryName,
-                parentDirectory,
-                isAdvancedChecked,
-                isTfvcServerCheckout);
-    }
-
-    @Override
-    public String getButtonText() {
-        return specificCheckoutModel.getButtonText();
-    }
-
-    @Override
-    public String getRepositoryName(final ServerContext context) {
-        return specificCheckoutModel.getRepositoryName(context);
-    }
-
-    @Override
-    public RepositoryContext.Type getRepositoryType() {
-        return specificCheckoutModel.getRepositoryType();
-    }
-    //END VcsSpecificCheckoutModel
+  @Override
+  public RepositoryContext.Type getRepositoryType() {
+    return specificCheckoutModel.getRepositoryType();
+  }
+  // END VcsSpecificCheckoutModel
 }

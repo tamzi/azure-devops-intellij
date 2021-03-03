@@ -10,19 +10,14 @@ import com.microsoft.alm.plugin.context.RepositoryContext;
 import com.microsoft.alm.plugin.context.ServerContext;
 
 public interface VcsSpecificCheckoutModel {
-    void doCheckout(
-            Project project,
-            CheckoutProvider.Listener listener,
-            ServerContext context,
-            VirtualFile destinationParent,
-            String directoryName,
-            String parentDirectory,
-            boolean isAdvancedChecked,
-            boolean isTfvcServerCheckout);
+  void doCheckout(Project project, CheckoutProvider.Listener listener,
+                  ServerContext context, VirtualFile destinationParent,
+                  String directoryName, String parentDirectory,
+                  boolean isAdvancedChecked, boolean isTfvcServerCheckout);
 
-    String getButtonText();
+  String getButtonText();
 
-    String getRepositoryName(final ServerContext context);
+  String getRepositoryName(final ServerContext context);
 
-    RepositoryContext.Type getRepositoryType();
+  RepositoryContext.Type getRepositoryType();
 }

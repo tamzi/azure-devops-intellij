@@ -16,55 +16,61 @@ import com.microsoft.alm.plugin.external.utils.CommandUtils;
 import com.microsoft.alm.plugin.idea.common.resources.TfPluginBundle;
 import com.microsoft.alm.plugin.idea.tfvc.core.tfs.TfIgnoreUtil;
 import com.microsoft.alm.plugin.idea.tfvc.core.tfs.TfsFileUtil;
-import org.jetbrains.annotations.NotNull;
-
 import java.io.File;
 import java.io.IOException;
+import org.jetbrains.annotations.NotNull;
 
 public class AddFileToTfIgnoreAction extends AnAction {
-    private static final Logger ourLogger = Logger.getInstance(AddFileToTfIgnoreAction.class);
+  private static final Logger ourLogger =
+      Logger.getInstance(AddFileToTfIgnoreAction.class);
 
-    @NotNull
-    private final Project myProject;
+  @NotNull private final Project myProject;
 
-    @NotNull
-    private final String myServerFilePath;
+  @NotNull private final String myServerFilePath;
 
-    public AddFileToTfIgnoreAction(@NotNull Project project, @NotNull String serverFilePath) {
-        super(TfPluginBundle.message(TfPluginBundle.KEY_TFVC_ACTION_ADD_TO_TFIGNORE));
-        myProject = project;
-        myServerFilePath = serverFilePath;
+  public AddFileToTfIgnoreAction(@NotNull Project project,
+                                 @NotNull String serverFilePath) {
+    super(
+        TfPluginBundle.message(TfPluginBundle.KEY_TFVC_ACTION_ADD_TO_TFIGNORE));
+    myProject = project;
+    myServerFilePath = serverFilePath;
+  }
+
+  @Override
+  public void actionPerformed(AnActionEvent e) {
+    ourLogger.info("Performing AddFileToTfIgnoreAction for " +
+                   myServerFilePath);
+
+    Workspace partialWorkspace =
+        CommandUtils.getPartialWorkspace(myProject, true);
+    String filePath =
+        ObjectUtils.assertNotNull(TfsFileUtil.translateServerItemToLocalItem(
+            partialWorkspace.getMappings(), myServerFilePath, false));
+    File localFile = new File(filePath);
+    ourLogger.info("Local file path: " + localFile.getAbsolutePath());
+
+    File tfIgnore = TfIgnoreUtil.findNearestOrRootTfIgnore(
+        partialWorkspace.getMappings(), localFile);
+    ourLogger.info(".tfignore location: " +
+                   (tfIgnore == null ? "null" : tfIgnore.getAbsolutePath()));
+
+    if (tfIgnore != null) {
+      CommandProcessor.getInstance().executeCommand(
+          myProject,
+          ()
+              -> ApplicationManager.getApplication().runWriteAction(() -> {
+            try {
+              TfIgnoreUtil.addToTfIgnore(this, tfIgnore, localFile);
+            } catch (IOException ex) {
+              ourLogger.error(ex);
+            }
+          }),
+          null, null);
+
+      // Usually the TFVC is already in a bad state (i.e. all the changed files
+      // are lost) before this action gets called, so we need to refresh the VCS
+      // changes afterwards.
+      RefreshAction.doRefresh(myProject);
     }
-
-    @Override
-    public void actionPerformed(AnActionEvent e) {
-        ourLogger.info("Performing AddFileToTfIgnoreAction for " + myServerFilePath);
-
-        Workspace partialWorkspace = CommandUtils.getPartialWorkspace(myProject, true);
-        String filePath = ObjectUtils.assertNotNull(
-                TfsFileUtil.translateServerItemToLocalItem(partialWorkspace.getMappings(), myServerFilePath, false));
-        File localFile = new File(filePath);
-        ourLogger.info("Local file path: " + localFile.getAbsolutePath());
-
-        File tfIgnore = TfIgnoreUtil.findNearestOrRootTfIgnore(partialWorkspace.getMappings(), localFile);
-        ourLogger.info(".tfignore location: " + (tfIgnore == null ? "null" : tfIgnore.getAbsolutePath()));
-
-        if (tfIgnore != null) {
-            CommandProcessor.getInstance().executeCommand(
-                    myProject,
-                    () -> ApplicationManager.getApplication().runWriteAction(() -> {
-                        try {
-                            TfIgnoreUtil.addToTfIgnore(this, tfIgnore, localFile);
-                        } catch (IOException ex) {
-                            ourLogger.error(ex);
-                        }
-                    }),
-                    null,
-                    null);
-
-            // Usually the TFVC is already in a bad state (i.e. all the changed files are lost) before this action gets
-            // called, so we need to refresh the VCS changes afterwards.
-            RefreshAction.doRefresh(myProject);
-        }
-    }
+  }
 }

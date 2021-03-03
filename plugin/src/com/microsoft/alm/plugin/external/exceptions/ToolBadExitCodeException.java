@@ -4,24 +4,22 @@
 package com.microsoft.alm.plugin.external.exceptions;
 
 public class ToolBadExitCodeException extends ToolException {
-    private final int exitCode;
+  private final int exitCode;
 
-    public ToolBadExitCodeException(int exitCode) {
-        super(ToolException.KEY_TF_BAD_EXIT_CODE);
-        this.exitCode = exitCode;
-    }
+  public ToolBadExitCodeException(int exitCode) {
+    super(ToolException.KEY_TF_BAD_EXIT_CODE);
+    this.exitCode = exitCode;
+  }
 
-    public ToolBadExitCodeException(int exitCode, Throwable t) {
-        super(ToolException.KEY_TF_BAD_EXIT_CODE, t);
-        this.exitCode = exitCode;
-    }
+  public ToolBadExitCodeException(int exitCode, Throwable t) {
+    super(ToolException.KEY_TF_BAD_EXIT_CODE, t);
+    this.exitCode = exitCode;
+  }
 
-    @Override
-    public String[] getMessageParameters() {
-        return new String[] {Integer.toString(exitCode)};
-    }
+  @Override
+  public String[] getMessageParameters() {
+    return new String[] {Integer.toString(exitCode)};
+  }
 
-    public int getExitCode() {
-        return exitCode;
-    }
+  public int getExitCode() { return exitCode; }
 }

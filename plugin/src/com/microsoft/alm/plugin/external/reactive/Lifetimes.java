@@ -9,12 +9,12 @@ import com.jetbrains.rd.util.lifetime.LifetimeDefinition;
 import com.jetbrains.rd.util.lifetime.LifetimeStatus;
 
 public class Lifetimes {
-    public static LifetimeDefinition defineNestedLifetime(Disposable disposable) {
-        LifetimeDefinition lifetimeDefinition = new LifetimeDefinition();
-        Disposer.register(disposable, () -> {
-            if (lifetimeDefinition.getStatus() == LifetimeStatus.Alive)
-                lifetimeDefinition.terminate(false);
-        });
-        return lifetimeDefinition;
-    }
+  public static LifetimeDefinition defineNestedLifetime(Disposable disposable) {
+    LifetimeDefinition lifetimeDefinition = new LifetimeDefinition();
+    Disposer.register(disposable, () -> {
+      if (lifetimeDefinition.getStatus() == LifetimeStatus.Alive)
+        lifetimeDefinition.terminate(false);
+    });
+    return lifetimeDefinition;
+  }
 }

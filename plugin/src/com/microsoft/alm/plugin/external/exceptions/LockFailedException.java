@@ -4,7 +4,5 @@
 package com.microsoft.alm.plugin.external.exceptions;
 
 public class LockFailedException extends ToolException {
-    public LockFailedException() {
-        super(ToolException.KEY_TF_LOCK_FAILED);
-    }
+  public LockFailedException() { super(ToolException.KEY_TF_LOCK_FAILED); }
 }

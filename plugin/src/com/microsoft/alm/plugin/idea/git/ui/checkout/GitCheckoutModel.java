@@ -15,38 +15,34 @@ import git4idea.commands.Git;
 import org.apache.commons.lang.StringUtils;
 
 public class GitCheckoutModel implements VcsSpecificCheckoutModel {
-    @Override
-    public void doCheckout(
-            Project project,
-            CheckoutProvider.Listener listener,
-            ServerContext context,
-            VirtualFile destinationParent,
-            String directoryName,
-            String parentDirectory,
-            boolean isAdvancedChecked,
-            boolean isTfvcServerCheckout) {
-        final String gitRepositoryStr = context.getUsableGitUrl();
-        final Git git = ServiceManager.getService(Git.class);
-        git4idea.checkout.GitCheckoutProvider.clone(project, git, listener,
-                destinationParent,
-                gitRepositoryStr,
-                directoryName,
-                parentDirectory);
-    }
+  @Override
+  public void doCheckout(Project project, CheckoutProvider.Listener listener,
+                         ServerContext context, VirtualFile destinationParent,
+                         String directoryName, String parentDirectory,
+                         boolean isAdvancedChecked,
+                         boolean isTfvcServerCheckout) {
+    final String gitRepositoryStr = context.getUsableGitUrl();
+    final Git git = ServiceManager.getService(Git.class);
+    git4idea.checkout.GitCheckoutProvider.clone(
+        project, git, listener, destinationParent, gitRepositoryStr,
+        directoryName, parentDirectory);
+  }
 
-    @Override
-    public String getButtonText() {
-        return TfPluginBundle.message(TfPluginBundle.KEY_CHECKOUT_DIALOG_CLONE_BUTTON);
-    }
+  @Override
+  public String getButtonText() {
+    return TfPluginBundle.message(
+        TfPluginBundle.KEY_CHECKOUT_DIALOG_CLONE_BUTTON);
+  }
 
-    @Override
-    public String getRepositoryName(final ServerContext context) {
-        return (context != null && context.getGitRepository() != null)
-                ? context.getGitRepository().getName() : StringUtils.EMPTY;
-    }
+  @Override
+  public String getRepositoryName(final ServerContext context) {
+    return (context != null && context.getGitRepository() != null)
+        ? context.getGitRepository().getName()
+        : StringUtils.EMPTY;
+  }
 
-    @Override
-    public RepositoryContext.Type getRepositoryType() {
-        return RepositoryContext.Type.GIT;
-    }
+  @Override
+  public RepositoryContext.Type getRepositoryType() {
+    return RepositoryContext.Type.GIT;
+  }
 }
