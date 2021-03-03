@@ -64,12 +64,6 @@ public class TfPluginBundle {
     @NonNls
     public static final String KEY_TFVC_NOTIFICATIONS = "Plugin.TfvcNotifications";
 
-    // Git
-    @NonNls
-    public static final String KEY_GIT_NOTIFICATION_REMOTE = "Git.Notification.Remote";
-    @NonNls
-    public static final String KEY_GIT_CONFIGURE_REMOTES = "Git.Action.ConfigureRemotes";
-
     // Login form
     @NonNls
     public static final String KEY_LOGIN_FORM_AUTHENTICATING_VSO = "LoginForm.VSO.Authenticating";
@@ -124,6 +118,8 @@ public class TfPluginBundle {
     @NonNls
     public static final String KEY_TFVC_ACTION_ADD_TO_TFIGNORE = "Tfvc.Action.AddToTfIgnore";
     @NonNls
+    public static final String KEY_TFVC_DETERMINE_WORKSPACE_TITLE = "Actions.Tfvc.DetermineWorkspace.Title";
+    @NonNls
     public static final String KEY_TFVC_IMPORT_WORKSPACE_TITLE = "Actions.Tfvc.ImportWorkspace.Title";
     @NonNls
     public static final String KEY_TFVC_REPOSITORY_IMPORT_ERROR = "Tfvc.RepositoryImportError";
@@ -131,6 +127,14 @@ public class TfPluginBundle {
     public static final String KEY_TFVC_REPOSITORY_IMPORT_SUCCESS = "Tfvc.RepositoryImportSuccess";
     @NonNls
     public static final String KEY_TFVC_WORKSPACE_NOT_DETECTED = "Tfvc.WorkspaceNotDetected";
+
+    // TFVC Checkout
+    @NonNls
+    public static final String KEY_TFVC_CHECKOUT_FAILED = "Tfvc.CheckoutFailed";
+    @NonNls
+    public static final String KEY_TFVC_CHECKOUT_FILES = "Tfvc.CheckoutFiles";
+    @NonNls
+    public static final String KEY_TFVC_CHECKOUT_FILES_FAILED = "Tfvc.CheckoutFilesFailed";
 
     // Checkout dialog ui and models
     @NonNls
@@ -161,6 +165,8 @@ public class TfPluginBundle {
     public static final String KEY_CHECKOUT_DIALOG_ERRORS_DIR_NAME_INVALID = "CheckoutDialog.Errors.DirNameInvalid";
     @NonNls
     public static final String KEY_CHECKOUT_DIALOG_TFVC_ADVANCED = "CheckoutDialog.Tfvc.Advanced";
+    @NonNls
+    public static final String KEY_CHECKOUT_DIALOG_TFVC_SERVER_WORKSPACE = "CheckoutDialog.Tfvc.ServerWorkspace";
     @NonNls
     public static final String KEY_CHECKOUT_ERRORS_UNEXPECTED = "Checkout.Errors.Unexpected";
     @NonNls
@@ -562,7 +568,7 @@ public class TfPluginBundle {
     public static final String KEY_TFVC_LABEL_DIALOG_VERSION_COLUMN = "Tfvc.Label.Dialog.VersionColumn";
 
 
-    // TFVC Apply Label Action
+    // TFVC Lock Action
     @NonNls
     public static final String KEY_ACTIONS_TFVC_LOCK_TITLE = "Actions.Tfvc.Lock.Title";
     @NonNls
@@ -576,7 +582,7 @@ public class TfPluginBundle {
     @NonNls
     public static final String KEY_ACTIONS_TFVC_LOCK_SUCCESS_UNLOCKED = "Actions.Tfvc.Label.Success.Unlocked";
 
-    // TFVC Apply Label Dialog
+    // TFVC Lock Dialog
     @NonNls
     public static final String KEY_TFVC_LOCK_DIALOG_TITLE = "Tfvc.Lock.Dialog.Title";
     @NonNls
@@ -615,6 +621,14 @@ public class TfPluginBundle {
     public static final String KEY_ACTIONS_TFVC_BRANCH_MESSAGE_FAILURE = "Actions.Tfvc.Branch.Message.Failure";
     @NonNls
     public static final String KEY_ACTIONS_TFVC_BRANCH_BROWSE_TITLE = "Actions.Tfvc.Branch.Browse.Title";
+
+    // TFVC Checkout Action
+    @NonNls
+    public static final String KEY_ACTIONS_TFVC_CHECKOUT_TITLE = "Actions.Tfvc.Checkout.Title";
+    @NonNls
+    public static final String KEY_ACTIONS_TFVC_CHECKOUT_DESCRIPTION = "Actions.Tfvc.Checkout.Description";
+    @NonNls
+    public static final String KEY_ACTIONS_TFVC_CHECKOUT_PROGRESS = "Actions.Tfvc.Checkout.Progress";
 
     // TFVC Server Tree
     @NonNls
@@ -811,6 +825,10 @@ public class TfPluginBundle {
     public static final String KEY_TFVC_SETTINGS_PATH_EMPTY = "Tfvc.Settings.Path.Empty";
     public static final String KEY_TFVC_SETTINGS_PATH_NOT_FOUND = "Tfvc.Settings.Path.NotFound";
     @NonNls
+    public static final String KEY_TFVC_SETTINGS_REACTIVE_CLIENT_ENV_WARNING = "Tfvc.Settings.ReactiveClient.EnvWarning";
+    @NonNls
+    public static final String KEY_TFVC_SETTINGS_REACTIVE_CLIENT_MEMORY_LIMIT = "Tfvc.Settings.ReactiveClient.MemoryLimit";
+    @NonNls
     public static final String KEY_TFVC_SETTINGS_VISUAL_STUDIO_CLIENT = "Tfvc.Settings.VisualStudioClient";
     @NonNls
     public static final String KEY_TFVC_SETTINGS_VISUAL_STUDIO_CLIENT_TEST = "Tfvc.Settings.VisualStudioClient.Test";
@@ -890,6 +908,12 @@ public class TfPluginBundle {
     public static final String KEY_TFVC_REPOSITORY_VIEW_CHANGELIST_TITLE = "Tfvc.RepositoryView.Changelist.Title";
     @NonNls
     public static final String KEY_TFVC_REPOSITORY_VIEW_COLUMN_REVISION = "Tfvc.RepositoryView.Column.Revision";
+
+    // Visual Studio Client
+    @NonNls
+    public static final String KEY_VISUAL_STUDIO_CLIENT_AUTHENTICATION_ERROR = "VisualStudioClient.AuthenticationError";
+    @NonNls
+    public static final String KEY_VISUAL_STUDIO_CLIENT = "VisualStudioClient";
 
     //Workspace dialog
     public static final String KEY_WORKSPACE_DIALOG_TITLE = "WorkspaceDialog.Title";

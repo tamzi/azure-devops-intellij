@@ -41,9 +41,10 @@ public class ReactiveTfvcClientHolder implements Disposable {
     public ReactiveTfvcClientHolder(Project myProject) {
         this.myProject = myProject;
         ApplicationManager.getApplication().getMessageBus()
-                .connect(myProject)
+                .connect(this)
                 .subscribe(SettingsChangedNotifier.SETTINGS_CHANGED_TOPIC, propertyKey -> {
-                    if (propertyKey.equals(PropertyService.PROP_TFVC_USE_REACTIVE_CLIENT)) {
+                    if (propertyKey.equals(PropertyService.PROP_TFVC_USE_REACTIVE_CLIENT)
+                        || propertyKey.equals(PropertyService.PROP_REACTIVE_CLIENT_MEMORY)) {
                         destroyClientIfExists();
                     }
                 });
@@ -97,7 +98,7 @@ public class ReactiveTfvcClientHolder implements Disposable {
         Path clientPath = getClientBackendPath()
                 .resolve("bin")
                 .resolve(SystemInfo.isWindows ? "backend.bat" : "backend");
-        ReactiveTfvcClientHost client = ReactiveTfvcClientHost.create(myProject, clientPath);
+        ReactiveTfvcClientHost client = ReactiveTfvcClientHost.create(this, clientPath);
         return client.startAsync().thenApply(unused -> client).toCompletableFuture();
     }
 }

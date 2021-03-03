@@ -25,6 +25,8 @@ import com.microsoft.alm.plugin.services.ServerContextStore;
 import com.microsoft.alm.sourcecontrol.webapi.GitHttpClient;
 import com.microsoft.alm.sourcecontrol.webapi.model.GitRepository;
 import org.apache.commons.lang.StringUtils;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -382,18 +384,14 @@ public class ServerContextManager {
         return context;
     }
 
-    public ServerContext createContextFromTfvcServerUrl(URI tfvcServerUrl, String teamProjectName, boolean prompt) {
-        return createContextFromTfvcServerUrl(tfvcServerUrl.toString(), teamProjectName, prompt);
-    }
-
-    /**
-     * @deprecated Use {@link #createContextFromTfvcServerUrl(URI, String, boolean)} instead.
-     */
-    public ServerContext createContextFromTfvcServerUrl(final String tfvcServerUrl, final String teamProjectName, final boolean prompt) {
-        ArgumentHelper.checkNotEmptyString(tfvcServerUrl, "tfvcServerUrl");
+    public ServerContext createContextFromTfvcServerUrl(
+            @NotNull URI tfvcServerUrl,
+            String teamProjectName,
+            boolean prompt) {
+        String tfvcServerUrlString = tfvcServerUrl.toString();
 
         // Get matching context from manager
-        ServerContext context = get(tfvcServerUrl);
+        ServerContext context = get(tfvcServerUrlString);
         logger.info("createContextFromTfvcServerUrl context exists: " + (context != null));
         if (context == null || context.getServerUri() == null ||
                 context.getTeamProjectCollectionReference() == null ||
@@ -409,7 +407,9 @@ public class ServerContextManager {
             // Manager didn't have a matching context, so try to look up the auth info
             final AuthenticationInfo authenticationInfo = getAuthenticationInfo(tfvcServerUrl, prompt);
             if (authenticationInfo != null) {
-                final ServerContext.Type type = UrlHelper.isTeamServicesUrl(tfvcServerUrl) ? ServerContext.Type.VSO : ServerContext.Type.TFS;
+                final ServerContext.Type type = UrlHelper.isTeamServicesUrl(tfvcServerUrlString)
+                        ? ServerContext.Type.VSO
+                        : ServerContext.Type.TFS;
 
                 final ServerContext contextToValidate = new ServerContextBuilder()
                         .type(type).uri(tfvcServerUrl).authentication(authenticationInfo)
@@ -422,7 +422,7 @@ public class ServerContextManager {
                     if (prompt) {
                         // refreshing creds
                         logger.info("createContextFromTfvcServerUrl: refreshing creds");
-                        updateAuthenticationInfo(tfvcServerUrl);
+                        updateAuthenticationInfo(tfvcServerUrlString);
                         final AuthenticationInfo authenticationInfoRefreshed = getAuthenticationInfo(tfvcServerUrl, prompt);
                         final ServerContext contextToValidateRefreshed = new ServerContextBuilder()
                                 .type(type).uri(tfvcServerUrl).authentication(authenticationInfoRefreshed)
@@ -446,20 +446,31 @@ public class ServerContextManager {
     }
 
     /**
-     * This method tries to find existing authentication info for a given git url.
+     * This method tries to find existing authentication info for a given server URI.
      * If the auth info cannot be found and the prompt flag is true, the user will be prompted.
      */
-    public AuthenticationInfo getBestAuthenticationInfo(final String url, final boolean prompt) {
-        final ServerContext context = get(url);
+    @Nullable
+    public AuthenticationInfo getBestAuthenticationInfo(@NotNull URI uri, boolean prompt) {
+        final ServerContext context = get(uri.toString());
         final AuthenticationInfo info;
         if (context != null) {
             // return exact match
             info = context.getAuthenticationInfo();
         } else {
             // look for a good enough match
-            info = getAuthenticationInfo(url, prompt);
+            info = getAuthenticationInfo(uri, prompt);
         }
         return info;
+    }
+
+    /**
+     * This method tries to find existing authentication info for a given git url.
+     * If the auth info cannot be found and the prompt flag is true, the user will be prompted.
+     *
+     * @deprecated Use {@link #getBestAuthenticationInfo(URI, boolean)} instead.
+     */
+    public AuthenticationInfo getBestAuthenticationInfo(final String url, final boolean prompt) {
+        return getAuthenticationInfo(URI.create(url), prompt);
     }
 
     /**
@@ -470,16 +481,16 @@ public class ServerContextManager {
     }
 
     /**
-     * This method tries to find existing authentication info for a given git url.
+     * This method tries to find existing authentication info for a given server URI.
      * If the auth info cannot be found and the prompt flag is true, the user will be prompted.
      */
-    public AuthenticationInfo getAuthenticationInfo(URI gitRemoteUrl, final boolean prompt) {
+    public AuthenticationInfo getAuthenticationInfo(URI serverUri, final boolean prompt) {
         AuthenticationInfo authenticationInfo = null;
 
         // For now I will just do a linear search for an appropriate context info to copy the auth info from
         for (final ServerContext context : getAllServerContexts()) {
-            if (UrlHelper.haveSameAccount(gitRemoteUrl, context.getUri())) {
-                logger.info("AuthenticatedInfo found for url " + gitRemoteUrl);
+            if (UrlHelper.haveSameAccount(serverUri, context.getUri())) {
+                logger.info("AuthenticatedInfo found for url " + serverUri);
                 authenticationInfo = context.getAuthenticationInfo();
                 break;
             }
@@ -488,7 +499,7 @@ public class ServerContextManager {
         // If the auth info wasn't found and we are ok to prompt, then prompt
         if (authenticationInfo == null && prompt) {
             logger.info("Prompting for credentials");
-            String uriString = gitRemoteUrl.toString();
+            String uriString = serverUri.toString();
             final AuthenticationProvider authenticationProvider = getAuthenticationProvider(uriString);
             authenticationInfo = AuthHelper.getAuthenticationInfoSynchronously(authenticationProvider, uriString);
         }

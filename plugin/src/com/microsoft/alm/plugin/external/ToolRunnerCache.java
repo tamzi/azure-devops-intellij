@@ -3,12 +3,14 @@
 
 package com.microsoft.alm.plugin.external;
 
+import com.google.common.collect.Lists;
 import com.microsoft.alm.common.utils.ArgumentHelper;
 import com.microsoft.alm.plugin.external.models.ToolVersion;
 import com.microsoft.alm.plugin.external.tools.TfTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -16,6 +18,18 @@ public class ToolRunnerCache {
     private static final Logger logger = LoggerFactory.getLogger(ToolRunnerCache.class);
 
     private static final ConcurrentMap<String, ToolRunner> cache = new ConcurrentHashMap<>(3);
+
+    /**
+     * Terminates all active tool runners in the cache.
+     */
+    public static void tearDown() {
+        for (Map.Entry<String, ToolRunner> entry : Lists.newArrayList(cache.entrySet())) {
+            ToolRunner runner = entry.getValue();
+            runner.dispose();
+            boolean result = cache.remove(entry.getKey(), runner);
+            assert result;
+        }
+    }
 
     /**
      * Creates and returns a running tool runner instance for TFVC client.
@@ -33,15 +47,16 @@ public class ToolRunnerCache {
             String toolLocation,
             ToolRunner.ArgumentBuilder argumentBuilder,
             ToolRunner.Listener listener,
-            boolean shouldPrepareCachedRunner) {
+            boolean shouldPrepareCachedRunner,
+            boolean skipVersionCheck) {
         logger.info("getRunningToolRunner: toolLocation={}", toolLocation);
         ToolRunner toolRunner;
 
         // Check the version
-        final ToolVersion version = TfTool.getCachedVersion();
+        final ToolVersion version = skipVersionCheck ? null : TfTool.getToolVersion();
         if (version == null || version.compare(TfTool.TF_MIN_VERSION) < 0) {
             // If it is older than the min version then just return a new ToolRunner and start it
-            logger.info("getRunningToolRunner: slow version - " + version);
+            logger.info("getRunningToolRunner: slow version - " + (skipVersionCheck ? "(version check skipped)" : version));
             toolRunner = startToolRunner(toolLocation, argumentBuilder, listener);
         } else {
             // check the cache and try to get one that is already running

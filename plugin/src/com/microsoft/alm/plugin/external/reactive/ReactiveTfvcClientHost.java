@@ -3,6 +3,7 @@
 
 package com.microsoft.alm.plugin.external.reactive;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.intellij.execution.ExecutionException;
@@ -13,18 +14,21 @@ import com.intellij.execution.process.ProcessEvent;
 import com.intellij.execution.process.ProcessHandler;
 import com.intellij.execution.process.ProcessListener;
 import com.intellij.execution.process.ProcessOutputTypes;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.SystemInfo;
 import com.jetbrains.rd.framework.impl.RdSecureString;
+import com.jetbrains.rd.util.lifetime.LifetimeDefinition;
 import com.jetbrains.rd.util.threading.SingleThreadScheduler;
 import com.microsoft.alm.plugin.authentication.AuthenticationInfo;
+import com.microsoft.alm.plugin.external.models.ExtendedItemInfo;
 import com.microsoft.alm.plugin.external.models.ItemInfo;
 import com.microsoft.alm.plugin.external.models.PendingChange;
 import com.microsoft.alm.plugin.external.utils.ProcessHelper;
 import com.microsoft.alm.plugin.idea.tfvc.core.tfs.TfsFileUtil;
+import com.microsoft.alm.plugin.services.PropertyService;
 import com.microsoft.tfs.connector.ReactiveClientConnection;
 import com.microsoft.tfs.model.connector.TfsCollection;
 import com.microsoft.tfs.model.connector.TfsCollectionDefinition;
@@ -32,6 +36,7 @@ import com.microsoft.tfs.model.connector.TfsCredentials;
 import com.microsoft.tfs.model.connector.TfsDeleteResult;
 import com.microsoft.tfs.model.connector.TfsLocalPath;
 import com.microsoft.tfs.model.connector.TfsPath;
+import com.microsoft.tfs.model.connector.TfvcCheckoutResult;
 import org.jetbrains.annotations.NotNull;
 
 import java.nio.file.Path;
@@ -56,21 +61,27 @@ public class ReactiveTfvcClientHost {
         RdIdeaLoggerFactory.initialize();
     }
 
+    public static final String REACTIVE_CLIENT_OPTIONS_ENV = "BACKEND_OPTS";
+    public static final int REACTIVE_CLIENT_DEFAULT_MEMORY_LIMIT = 2048;
+
     private static final int INFO_PARTITION_COUNT = 1000;
 
     private static final String REACTIVE_CLIENT_LOG_LEVEL = "INFO";
 
     private static final Logger ourLogger = Logger.getInstance(ReactiveTfvcClientHost.class);
 
+    private final LifetimeDefinition myLifetime;
     private final ReactiveClientConnection myConnection;
 
-    public ReactiveTfvcClientHost(ReactiveClientConnection connection) {
+    public ReactiveTfvcClientHost(LifetimeDefinition myLifetime, ReactiveClientConnection connection) {
+        this.myLifetime = myLifetime;
         myConnection = connection;
     }
 
-    public static ReactiveTfvcClientHost create(Project project, Path clientPath) throws ExecutionException {
-        SingleThreadScheduler scheduler = new SingleThreadScheduler(defineNestedLifetime(project), "ReactiveTfClient Scheduler");
-        ReactiveClientConnection connection = new ReactiveClientConnection(scheduler);
+    public static ReactiveTfvcClientHost create(Disposable parent, Path clientPath) throws ExecutionException {
+        LifetimeDefinition hostLifetime = defineNestedLifetime(parent);
+        SingleThreadScheduler scheduler = new SingleThreadScheduler(hostLifetime, "ReactiveTfClient Scheduler");
+        ReactiveClientConnection connection = new ReactiveClientConnection(hostLifetime, scheduler);
         try {
             Path logDirectory = Paths.get(PathManager.getLogPath(), "ReactiveTfsClient");
             Path clientHomeDir = clientPath.getParent().getParent();
@@ -79,18 +90,18 @@ public class ReactiveTfvcClientHost {
             ProcessHandler processHandler = new OSProcessHandler(commandLine);
             connection.getLifetime().onTerminationIfAlive(processHandler::destroyProcess);
 
-            processHandler.addProcessListener(createProcessListener(connection));
+            processHandler.addProcessListener(createProcessListener(hostLifetime));
             processHandler.startNotify();
 
-            return new ReactiveTfvcClientHost(connection);
+            return new ReactiveTfvcClientHost(hostLifetime, connection);
         } catch (Throwable t) {
-            connection.terminate();
+            hostLifetime.terminate(false);
             throw t;
         }
     }
 
     public void terminate() {
-        myConnection.terminate();
+        myLifetime.terminate(false);
     }
 
     @NotNull
@@ -109,7 +120,20 @@ public class ReactiveTfvcClientHost {
             command.addAll(0, Arrays.asList("/usr/bin/env", "sh"));
         }
 
-        return new GeneralCommandLine(command).withWorkDirectory(clientHome.toString());
+        String backendOptions = System.getenv(REACTIVE_CLIENT_OPTIONS_ENV);
+        if (Strings.isNullOrEmpty(backendOptions)) {
+            String memoryMb = PropertyService.getInstance().getProperty(PropertyService.PROP_REACTIVE_CLIENT_MEMORY);
+            if (memoryMb == null)
+                memoryMb = Integer.toString(REACTIVE_CLIENT_DEFAULT_MEMORY_LIMIT);
+
+            backendOptions = String.format("-Xmx%sm", memoryMb);
+        }
+
+        ourLogger.info("Reactive client will be started with env " + REACTIVE_CLIENT_OPTIONS_ENV + "=" + backendOptions);
+        return new GeneralCommandLine(command)
+                .withParentEnvironmentType(GeneralCommandLine.ParentEnvironmentType.SYSTEM)
+                .withEnvironment(REACTIVE_CLIENT_OPTIONS_ENV, backendOptions)
+                .withWorkDirectory(clientHome.toString());
     }
 
     public CompletionStage<Void> startAsync() {
@@ -142,6 +166,22 @@ public class ReactiveTfvcClientHost {
                 });
     }
 
+    private CompletionStage<Void> getExtendedItemsInfoAsyncChunk(
+            TfsCollection collection,
+            Iterator<List<Path>> chunkIterator,
+            Consumer<ExtendedItemInfo> onItemReceived) {
+        if (!chunkIterator.hasNext())
+            return CompletableFuture.completedFuture(null);
+
+        List<Path> chunk = chunkIterator.next();
+        List<TfsLocalPath> paths = chunk.stream().map(TfsFileUtil::createLocalPath).collect(Collectors.toList());
+        return myConnection.getExtendedItemsInfoAsync(collection, paths)
+                .thenCompose(infos -> {
+                    infos.forEach(ii -> onItemReceived.accept(ExtendedItemInfo.from(ii)));
+                    return getExtendedItemsInfoAsyncChunk(collection, chunkIterator, onItemReceived);
+                });
+    }
+
     public CompletionStage<Void> getLocalItemsInfoAsync(
             ServerIdentification serverIdentification,
             Stream<Path> localPaths,
@@ -150,6 +190,27 @@ public class ReactiveTfvcClientHost {
         Iterable<List<Path>> partitions = Iterables.partition(localPaths::iterator, INFO_PARTITION_COUNT);
         return getReadyCollectionAsync(serverIdentification)
                 .thenCompose(collection -> getLocalItemsInfoAsyncChunk(collection, partitions.iterator(), onItemReceived));
+    }
+
+    public CompletionStage<Void> getExtendedItemsInfoAsync(
+            ServerIdentification serverIdentification,
+            Stream<Path> localPaths,
+            Consumer<ExtendedItemInfo> onItemReceived) {
+        // Pack the paths into partitions of predefined size to avoid overloading the protocol.
+        Iterable<List<Path>> partitions = Iterables.partition(localPaths::iterator, INFO_PARTITION_COUNT);
+        return getReadyCollectionAsync(serverIdentification)
+                .thenCompose(collection -> getExtendedItemsInfoAsyncChunk(
+                        collection,
+                        partitions.iterator(),
+                        onItemReceived));
+    }
+
+    @NotNull
+    public CompletionStage<List<TfsLocalPath>> addFilesAsync(
+            @NotNull ServerIdentification serverIdentification,
+            @NotNull List<TfsLocalPath> files) {
+        return getReadyCollectionAsync(serverIdentification)
+                .thenCompose(collection -> myConnection.addFilesAsync(collection, files));
     }
 
     @NotNull
@@ -168,7 +229,24 @@ public class ReactiveTfvcClientHost {
                 .thenCompose(collection -> myConnection.undoLocalChangesAsync(collection, paths));
     }
 
-    private static ProcessListener createProcessListener(ReactiveClientConnection connection) {
+    @NotNull
+    public CompletionStage<TfvcCheckoutResult> checkoutFilesForEditAsync(
+            @NotNull ServerIdentification serverIdentification,
+            @NotNull List<TfsLocalPath> paths,
+            boolean recursive) {
+        return getReadyCollectionAsync(serverIdentification)
+                .thenCompose(collection -> myConnection.checkoutFilesForEditAsync(collection, paths, recursive));
+    }
+
+    public CompletionStage<Boolean> renameFileAsync(
+            @NotNull ServerIdentification serverIdentification,
+            @NotNull TfsLocalPath oldPath,
+            @NotNull TfsLocalPath newPath) {
+        return getReadyCollectionAsync(serverIdentification)
+                .thenCompose(collection -> myConnection.renameFileAsync(collection, oldPath, newPath));
+    }
+
+    private static ProcessListener createProcessListener(LifetimeDefinition lifetime) {
         return new ProcessAdapter() {
             @Override
             public void onTextAvailable(@NotNull ProcessEvent event, @NotNull Key outputType) {
@@ -184,7 +262,7 @@ public class ReactiveTfvcClientHost {
             @Override
             public void processTerminated(@NotNull ProcessEvent event) {
                 ourLogger.info("Process is terminated, terminating the connection");
-                connection.terminate();
+                lifetime.terminate(false);
             }
         };
     }

@@ -3,8 +3,11 @@
 
 package com.microsoft.alm.plugin.idea.tfvc.core;
 
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.microsoft.alm.plugin.context.ServerContext;
+import com.microsoft.alm.plugin.external.exceptions.ToolBadExitCodeException;
+import com.microsoft.alm.plugin.external.models.ExtendedItemInfo;
 import com.microsoft.alm.plugin.external.models.ItemInfo;
 import com.microsoft.alm.plugin.external.models.PendingChange;
 import com.microsoft.alm.plugin.external.utils.CommandUtils;
@@ -13,8 +16,11 @@ import com.microsoft.alm.plugin.idea.tfvc.ui.settings.EULADialog;
 import com.microsoft.tfs.model.connector.TfsLocalPath;
 import com.microsoft.tfs.model.connector.TfsPath;
 import com.microsoft.tfs.model.connector.TfsServerPath;
+import com.microsoft.tfs.model.connector.TfvcCheckoutResult;
 import org.jetbrains.annotations.NotNull;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -24,6 +30,8 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 public class ClassicTfvcClient implements TfvcClient {
+
+    private static final Logger ourLogger = Logger.getInstance(ClassicTfvcClient.class);
 
     @NotNull
     private final Project myProject;
@@ -56,8 +64,7 @@ public class ClassicTfvcClient implements TfvcClient {
             @NotNull ServerContext serverContext,
             @NotNull List<String> pathsToProcess,
             @NotNull Consumer<ItemInfo> onItemReceived) {
-        getLocalItemsInfo(serverContext, pathsToProcess, onItemReceived);
-        return CompletableFuture.completedFuture(null);
+        return getExtendedItemsInfoAsync(serverContext, pathsToProcess, onItemReceived::accept);
     }
 
     @Override
@@ -65,8 +72,39 @@ public class ClassicTfvcClient implements TfvcClient {
             @NotNull ServerContext serverContext,
             @NotNull List<String> pathsToProcess,
             @NotNull Consumer<ItemInfo> onItemReceived) {
-        List<ItemInfo> itemInfos = CommandUtils.getItemInfos(serverContext, pathsToProcess);
+        getExtendedItemsInfo(serverContext, pathsToProcess, onItemReceived::accept);
+    }
+
+    @NotNull
+    @Override
+    public CompletionStage<Void> getExtendedItemsInfoAsync(
+            @NotNull ServerContext serverContext,
+            @NotNull List<String> pathsToProcess,
+            @NotNull Consumer<ExtendedItemInfo> onItemReceived) {
+        getExtendedItemsInfo(serverContext, pathsToProcess, onItemReceived);
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public void getExtendedItemsInfo(
+            @NotNull ServerContext serverContext,
+            @NotNull List<String> pathsToProcess,
+            @NotNull Consumer<ExtendedItemInfo> onItemReceived) {
+        List<ExtendedItemInfo> itemInfos = CommandUtils.getItemInfos(serverContext, pathsToProcess);
         itemInfos.forEach(onItemReceived);
+    }
+
+    @NotNull
+    @Override
+    public CompletionStage<List<Path>> addFilesAsync(@NotNull ServerContext serverContext, @NotNull List<Path> files) {
+        return CompletableFuture.completedFuture(addFiles(serverContext, files));
+    }
+
+    @NotNull
+    @Override
+    public List<Path> addFiles(@NotNull ServerContext serverContext, @NotNull List<Path> files) {
+        List<String> pathStrings = files.stream().map(Path::toString).collect(Collectors.toList());
+        return CommandUtils.addFiles(serverContext, pathStrings).stream().map(Paths::get).collect(Collectors.toList());
     }
 
     @NotNull
@@ -124,5 +162,44 @@ public class ClassicTfvcClient implements TfvcClient {
         List<String> itemPaths = items.stream().map(TfsFileUtil::getPathItem).collect(Collectors.toList());
         List<String> undonePaths = CommandUtils.undoLocalFiles(serverContext, itemPaths);
         return undonePaths.stream().map(TfsLocalPath::new).collect(Collectors.toList());
+    }
+
+    @NotNull
+    @Override
+    public CompletionStage<TfvcCheckoutResult> checkoutForEditAsync(
+            @NotNull ServerContext serverContext,
+            @NotNull List<Path> filePaths,
+            boolean recursive) {
+        return CompletableFuture.completedFuture(checkoutForEdit(serverContext, filePaths, recursive));
+    }
+
+    @NotNull
+    @Override
+    public TfvcCheckoutResult checkoutForEdit(
+            @NotNull ServerContext serverContext,
+            @NotNull List<Path> filePaths,
+            boolean recursive) {
+        return CommandUtils.checkoutFilesForEdit(serverContext, filePaths, recursive);
+    }
+
+    @NotNull
+    @Override
+    public CompletionStage<Boolean> renameFileAsync(
+            @NotNull ServerContext serverContext,
+            @NotNull Path oldFile,
+            @NotNull Path newFile) {
+        renameFile(serverContext, oldFile, newFile);
+        return CompletableFuture.completedFuture(null);
+    }
+
+    @Override
+    public boolean renameFile(@NotNull ServerContext serverContext, @NotNull Path oldFile, @NotNull Path newFile) {
+        try {
+            CommandUtils.renameFile(serverContext, oldFile.toString(), newFile.toString());
+            return true;
+        } catch (ToolBadExitCodeException ex) {
+            ourLogger.error(ex);
+            return false;
+        }
     }
 }

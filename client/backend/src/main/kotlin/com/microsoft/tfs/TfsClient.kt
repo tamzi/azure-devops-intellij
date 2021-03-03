@@ -17,10 +17,7 @@ import com.microsoft.tfs.core.clients.versioncontrol.events.UndonePendingChangeL
 import com.microsoft.tfs.core.clients.versioncontrol.soapextensions.*
 import com.microsoft.tfs.core.clients.versioncontrol.specs.ItemSpec
 import com.microsoft.tfs.core.httpclient.Credentials
-import com.microsoft.tfs.model.host.TfsDeleteResult
-import com.microsoft.tfs.model.host.TfsItemInfo
-import com.microsoft.tfs.model.host.TfsLocalPath
-import com.microsoft.tfs.model.host.TfsPath
+import com.microsoft.tfs.model.host.*
 import com.microsoft.tfs.sdk.*
 import com.microsoft.tfs.watcher.ExternallyControlledPathWatcherFactory
 import java.net.URI
@@ -86,29 +83,83 @@ class TfsClient(lifetime: Lifetime, serverUri: URI, credentials: Credentials) {
         return results
     }
 
-    fun getLocalItemsInfo(paths: List<TfsLocalPath>): List<TfsItemInfo> {
-        val infos = ArrayList<TfsItemInfo>(paths.size)
+    private fun <TInfo>getLocalItemsInfo(
+        paths: List<TfsLocalPath>,
+        extended: Boolean,
+        converter: (ExtendedItem) -> TInfo
+    ): List<TInfo> {
+        val infos = ArrayList<TInfo>(paths.size)
         enumeratePathsWithWorkspace(paths) { workspace, workspacePaths ->
-            val downloadType = if (workspace.isLocal) GetItemsOptions.LOCAL_ONLY else GetItemsOptions.NONE
+            // Pass NONE to get lock info in extended mode.
+            val downloadType = if (extended) GetItemsOptions.NONE else GetItemsOptions.LOCAL_ONLY
             val itemSpecs = workspacePaths.mapToArray { it.toCanonicalPathItemSpec(RecursionType.NONE) }
             val extendedItems = workspace.getExtendedItems(itemSpecs, DeletedState.ANY, ItemType.ANY, downloadType)
                 .asSequence()
                 .flatMap { it.asSequence() }
 
             for (extendedItem in extendedItems) {
-                infos.add(extendedItem.toTfsItemInfo())
+                infos.add(converter(extendedItem))
             }
         }
 
         return infos
     }
 
+    fun getLocalItemsInfo(paths: List<TfsLocalPath>): List<TfsLocalItemInfo> = getLocalItemsInfo(paths, false) {
+        it.toLocalItemInfo()
+    }
+
+    fun getExtendedLocalItemsInfo(paths: List<TfsLocalPath>): List<TfsExtendedItemInfo> =
+        getLocalItemsInfo(paths, true) {
+            it.toExtendedItemInfo()
+        }
+
     fun invalidatePaths(paths: List<TfsLocalPath>) {
         pathWatcherFactory.pathsInvalidated.fire(paths.map { Paths.get(it.path) })
     }
 
-    fun deletePathsRecursively(paths: List<TfsPath>): TfsDeleteResult {
+    private fun performLocalChanges(
+        paths: List<TfsPath>,
+        changeListener: NewPendingChangeListener,
+        errorListener: NonFatalErrorListener,
+        action: (Workspace, List<TfsPath>) -> Unit) {
         val eventEngine = client.eventEngine
+
+        eventEngine.withNewPendingChangeListener(changeListener) {
+            eventEngine.withNonFatalErrorListener(errorListener) {
+                enumeratePathsWithWorkspace(paths) { workspace, workspacePaths ->
+                    action(workspace, workspacePaths)
+                }
+            }
+        }
+    }
+
+    fun addFiles(paths: List<TfsLocalPath>): List<TfsLocalPath> {
+        val addedEvents = mutableListOf<PendingChangeEvent>()
+        val changeListener = NewPendingChangeListener { event ->
+            if (event.pendingChange.changeType.contains(ChangeType.ADD)) {
+                addedEvents.add(event)
+            }
+        }
+
+        val errorListener = NonFatalErrorListener {
+            logger.warn { "Non-fatal error detected: ${it.message}" }
+        }
+        performLocalChanges(paths, changeListener, errorListener) { workspace, workspacePaths ->
+            workspace.pendAdd(
+                workspacePaths.mapToArray { it.toCanonicalPathString() },
+                false,
+                null,
+                LockLevel.UNCHANGED,
+                GetOptions.NONE,
+                PendChangesOptions.APPLY_LOCAL_ITEM_EXCLUSIONS
+            )
+        }
+
+        return addedEvents.map { TfsLocalPath(it.pendingChange.localItem) }
+    }
+
+    fun deletePathsRecursively(paths: List<TfsPath>): TfsDeleteResult {
         val deletedEvents = mutableListOf<PendingChangeEvent>()
         val itemNotExistsFailures = mutableListOf<Failure>()
         val otherFailures = mutableListOf<Failure>()
@@ -128,18 +179,14 @@ class TfsClient(lifetime: Lifetime, serverUri: URI, credentials: Credentials) {
             }
         }
 
-        eventEngine.withNewPendingChangeListener(changeListener) {
-            eventEngine.withNonFatalErrorListener(errorListener) {
-                enumeratePathsWithWorkspace(paths) { workspace, workspacePaths ->
-                    workspace.pendDelete(
-                        workspacePaths.mapToArray { it.toCanonicalPathString() },
-                        RecursionType.FULL,
-                        LockLevel.UNCHANGED,
-                        GetOptions.NONE,
-                        PendChangesOptions.NONE
-                    )
-                }
-            }
+        performLocalChanges(paths, changeListener, errorListener) { workspace, workspacePaths ->
+            workspace.pendDelete(
+                workspacePaths.mapToArray { it.toCanonicalPathString() },
+                RecursionType.FULL,
+                LockLevel.UNCHANGED,
+                GetOptions.NONE,
+                PendChangesOptions.NONE
+            )
         }
 
         val deletedPaths = deletedEvents.map { TfsLocalPath(it.pendingChange.localItem) }
@@ -160,5 +207,64 @@ class TfsClient(lifetime: Lifetime, serverUri: URI, credentials: Credentials) {
         }
 
         return undonePaths
+    }
+
+    fun checkoutFilesForEdit(paths: List<TfsLocalPath>, recursive: Boolean): TfvcCheckoutResult {
+        val editedEvents = mutableListOf<PendingChangeEvent>()
+        val itemNotExistsFailures = mutableListOf<Failure>()
+        val otherFailures = mutableListOf<Failure>()
+
+        val changeListener = NewPendingChangeListener { event ->
+            if (event.pendingChange.changeType.contains(ChangeType.EDIT)) {
+                editedEvents.add(event)
+            }
+        }
+
+        val errorListener = NonFatalErrorListener { event ->
+            event.failure?.let {
+                when (event.failure.code) {
+                    FailureCodes.ITEM_NOT_FOUND_EXCEPTION -> itemNotExistsFailures.add(it)
+                    else -> otherFailures.add(it)
+                }
+            }
+        }
+
+        val recursionType = if (recursive) RecursionType.FULL else RecursionType.NONE
+        performLocalChanges(paths, changeListener, errorListener) { workspace, workspacePaths ->
+            workspace.pendEdit(
+                workspacePaths.mapToArray { it.toCanonicalPathString() },
+                recursionType,
+                LockLevel.NONE,
+                null,
+                GetOptions.NONE,
+                PendChangesOptions.NONE
+            )
+        }
+
+        val editedPaths = editedEvents.map { TfsLocalPath(it.pendingChange.localItem) }
+        val errorMessages = otherFailures.map { it.toString() }
+        val notFoundPaths = itemNotExistsFailures.map { TfsLocalPath(it.localItem) }
+
+        return TfvcCheckoutResult(editedPaths, notFoundPaths, errorMessages)
+    }
+
+    fun renameFile(oldPath: TfsLocalPath, newPath: TfsLocalPath): Boolean {
+        val workspace = getWorkspaceFor(oldPath)
+        if (workspace == null) {
+            logger.warn { "Could not determine workspace for path: \"$oldPath\"" }
+            return false
+        }
+
+        val changedItems = workspace.pendRename(
+            oldPath.path,
+            newPath.path,
+            LockLevel.NONE,
+            GetOptions.NONE,
+            true,
+            PendChangesOptions.NONE
+        )
+        logger.info { "pendRename result: $changedItems" }
+
+        return changedItems == 1
     }
 }

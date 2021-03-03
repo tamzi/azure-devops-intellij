@@ -55,24 +55,44 @@ object TfsModel : Root() {
         field("credentials", TfsCredentials)
     }
 
-    private val TfsItemInfo = structdef {
+    private val TfsItemInfo = basestruct {
         field("serverItem", string.nullable)
         field("localItem", string.nullable)
         field("localVersion", int)
         field("serverVersion", int)
         field("change", string.nullable)
         field("type", string.nullable)
-        field("lock", string.nullable)
-        field("lockOwner", string.nullable)
-        field("deletionId", int)
         field("lastModified", string.nullable)
         field("fileEncoding", string.nullable)
+    }
+
+    private val TfsLocalItemInfo = structdef extends TfsItemInfo {}
+
+    private val TfsExtendedItemInfo = structdef extends TfsItemInfo {
+        field("lock", string.nullable)
+        field("lockOwner", string.nullable)
     }
 
     private val TfsDeleteResult = structdef {
         field("deletedPaths", immutableList(TfsLocalPath))
         field("notFoundPaths", immutableList(TfsPath))
         field("errorMessages", immutableList(string))
+    }
+
+    private val TfvcCheckoutParameters = structdef {
+        field("filePaths", immutableList(TfsLocalPath))
+        field("recursive", bool)
+    }
+
+    private val TfvcCheckoutResult = structdef {
+        field("checkedOutFiles", immutableList(TfsLocalPath))
+        field("notFoundFiles", immutableList(TfsLocalPath))
+        field("errorMessages", immutableList(string))
+    }
+
+    private val TfvcRenameRequest = structdef {
+        field("oldPath", TfsLocalPath)
+        field("newPath", TfsLocalPath)
     }
 
     private val TfsCollection = classdef {
@@ -85,17 +105,29 @@ object TfsModel : Root() {
         call("getPendingChanges", immutableList(TfsPath), immutableList(TfsPendingChange))
             .doc("Determines a set of the pending changes in the collection")
 
-        call("getLocalItemsInfo", immutableList(TfsLocalPath), immutableList(TfsItemInfo))
+        call("getLocalItemsInfo", immutableList(TfsLocalPath), immutableList(TfsLocalItemInfo))
             .doc("Provides information on local repository items")
+
+        call("getExtendedLocalItemsInfo", immutableList(TfsLocalPath), immutableList(TfsExtendedItemInfo))
+            .doc("Provides extended information (i.e. including locks) on local repository items")
 
         call("invalidatePaths", immutableList(TfsLocalPath), void)
             .doc("Invalidates the paths in the TFS cache")
+
+        call("addFiles", immutableList(TfsLocalPath), immutableList(TfsLocalPath))
+            .doc("Creates an \"add\" pending change, which adds files and folders from the local workspace to the source control server. Returns a collection of the paths added.")
 
         call("deleteFilesRecursively", immutableList(TfsPath), TfsDeleteResult)
             .doc("Scheduled deletion of the files")
 
         call("undoLocalChanges", immutableList(TfsPath), immutableList(TfsLocalPath))
             .doc("Removes pending changes from a workspace, restoring the local disk files to match the state of the source control server before the change was made.")
+
+        call("checkoutFilesForEdit", TfvcCheckoutParameters, TfvcCheckoutResult)
+            .doc("Makes one or more local files writable and creates \"edit\" pending changes for them in the current workspace.")
+
+        call("renameFile", TfvcRenameRequest, bool)
+            .doc("Creates a \"rename\" pending change, which moves or renames a file or folder. Returns success status")
     }
 
     init {

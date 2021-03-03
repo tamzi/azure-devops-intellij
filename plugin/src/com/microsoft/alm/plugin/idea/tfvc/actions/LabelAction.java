@@ -32,7 +32,7 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 
-public class LabelAction extends MultipleItemAction {
+public class LabelAction extends SimpleMultipleItemAction {
     public static final Logger logger = LoggerFactory.getLogger(LabelAction.class);
 
     public LabelAction() {

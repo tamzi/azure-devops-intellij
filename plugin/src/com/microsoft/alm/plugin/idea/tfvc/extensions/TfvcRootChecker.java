@@ -8,6 +8,7 @@ import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.VcsKey;
 import com.intellij.openapi.vcs.VcsRootChecker;
+import com.microsoft.alm.plugin.external.exceptions.ToolAuthenticationException;
 import com.microsoft.alm.plugin.external.exceptions.WorkspaceCouldNotBeDeterminedException;
 import com.microsoft.alm.plugin.external.models.Workspace;
 import com.microsoft.alm.plugin.external.tools.TfTool;
@@ -16,16 +17,13 @@ import com.microsoft.alm.plugin.idea.tfvc.core.TFSVcs;
 import com.microsoft.alm.plugin.idea.tfvc.ui.settings.EULADialog;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
 public class TfvcRootChecker extends VcsRootChecker {
     private static final Logger ourLogger = Logger.getInstance(TfvcRootChecker.class);
 
-    private static boolean isPossibleTfvcWorkspaceRoot(@NotNull String path) {
-        return new File(path, "$tf").isDirectory() || new File(path, ".tf").isDirectory();
-    }
+    private final TfvcRootCache myCache = new TfvcRootCache();
 
     /**
      * Checks if registered mapping can be used to perform VCS operations. According to the specification, returns
@@ -34,11 +32,20 @@ public class TfvcRootChecker extends VcsRootChecker {
      * It is used as optimization in IDEA 2019.2+.
      */
     // @Override // only available in IDEA 2019.2
-    public boolean validateRoot(@NotNull String path) {
-        if (StringUtil.isEmpty(TfTool.getLocation()))
+    public boolean validateRoot(@NotNull String pathString) {
+        Path path = Paths.get(pathString);
+        Path fileName = path.getFileName();
+        if (fileName != null && (isVcsDir(fileName.toString()) || fileName.toString().startsWith("$")))
             return false;
 
-        return isPossibleTfvcWorkspaceRoot(path);
+        for (Path component : path) {
+            if (isVcsDir(component.toString()))
+                return false;
+        }
+
+        TfvcRootCache.CachedStatus cachedStatus = myCache.get(path);
+        return cachedStatus == TfvcRootCache.CachedStatus.UNKNOWN
+                || cachedStatus == TfvcRootCache.CachedStatus.IS_MAPPING_ROOT; // known as not a root otherwise
     }
 
     @Override
@@ -46,16 +53,37 @@ public class TfvcRootChecker extends VcsRootChecker {
         if (!validateRoot(path))
             return false;
 
+        if (StringUtil.isEmpty(TfTool.getLocation()))
+            return false;
+
+        TfvcRootCache.CachedStatus cachedStatus = myCache.get(Paths.get(path));
+        switch (cachedStatus) {
+            case IS_MAPPING_ROOT:
+                return true;
+            case NO_ROOT:
+            case UNDER_MAPPING_ROOT:
+                return false;
+        }
+
+        // Will get here only if cachedStatus == UNKNOWN.
         return EULADialog.executeWithGuard(null, () -> {
             Workspace workspace = null;
             Path workspacePath = Paths.get(path);
             try {
-                workspace = CommandUtils.getPartialWorkspace(workspacePath);
-            } catch (WorkspaceCouldNotBeDeterminedException ex) {
+                workspace = CommandUtils.getPartialWorkspace(workspacePath, true);
+            } catch (WorkspaceCouldNotBeDeterminedException | ToolAuthenticationException ex) {
+                if (!(ex instanceof WorkspaceCouldNotBeDeterminedException))
+                    ourLogger.warn(ex);
+
                 ourLogger.info("TFVC workspace could not be determined from path \"" + path + "\"");
             }
 
-            if (workspace == null) return false;
+            if (workspace == null) {
+                myCache.putNoMappingsFor(workspacePath);
+                return false;
+            }
+
+            myCache.putMappings(workspace.getMappings());
             return workspace.getMappings().stream()
                     .anyMatch(mapping -> FileUtil.pathsEqual(path, mapping.getLocalPath()));
         });

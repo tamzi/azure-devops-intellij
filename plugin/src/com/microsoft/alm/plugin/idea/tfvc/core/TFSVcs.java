@@ -35,6 +35,7 @@ import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.vcs.AbstractVcs;
 import com.intellij.openapi.vcs.CheckoutProvider;
 import com.intellij.openapi.vcs.CommittedChangesProvider;
+import com.intellij.openapi.vcs.EditFileProvider;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.VcsConfiguration;
@@ -74,12 +75,11 @@ import org.slf4j.LoggerFactory;
 
 import javax.swing.event.HyperlinkEvent;
 import javax.ws.rs.NotAuthorizedException;
+import java.net.URI;
 import java.util.Collection;
 
 /**
  * Class that sets up the TFS version control extension.
- * <p/>
- * TODO: comment back in code as more features are added
  */
 public class TFSVcs extends AbstractVcs {
     public static final Logger logger = LoggerFactory.getLogger(TFSVcs.class);
@@ -102,6 +102,7 @@ public class TFSVcs extends AbstractVcs {
     private VcsVFSListener fileListener;
     private TFSFileSystemListener tfsFileSystemListener;
     private CommittedChangesProvider<TFSChangeList, ChangeBrowserSettings> committedChangesProvider;
+    private EditFileProvider myEditFileProvider;
 
     public TFSVcs(@NotNull Project project) {
         super(project, TFVC_NAME);
@@ -220,6 +221,14 @@ public class TFSVcs extends AbstractVcs {
         return myDiffProvider;
     }
 
+    @NotNull
+    @Override
+    public EditFileProvider getEditFileProvider() {
+        if (myEditFileProvider == null)
+            myEditFileProvider = new TfvcEditFileProvider(this);
+        return myEditFileProvider;
+    }
+
     @Nullable
     public VcsRevisionNumber parseRevisionNumber(final String revisionNumberString) {
         return TfsRevisionNumber.tryParse(revisionNumberString);
@@ -245,7 +254,8 @@ public class TFSVcs extends AbstractVcs {
             return (VcsException) throwable;
         }
 
-        final VcsException exception = new VcsException(throwable.getMessage(), throwable);
+        String message = LocalizationServiceImpl.getInstance().getExceptionMessage(throwable);
+        final VcsException exception = new VcsException(message, throwable);
         if (throwable instanceof SyncException) {
             exception.setIsWarning(((SyncException) throwable).isWarning());
         }
@@ -271,7 +281,7 @@ public class TFSVcs extends AbstractVcs {
                 && StringUtils.isNotEmpty(repositoryContext.getTeamProjectName())
                 && StringUtils.isNotEmpty(repositoryContext.getUrl()) ?
                 ServerContextManager.getInstance().createContextFromTfvcServerUrl(
-                        repositoryContext.getUrl(), repositoryContext.getTeamProjectName(), true)
+                        URI.create(repositoryContext.getUrl()), repositoryContext.getTeamProjectName(), true)
                 : null;
 
         if (serverContext == null && throwIfNotFound) {

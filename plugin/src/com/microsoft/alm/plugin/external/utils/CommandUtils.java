@@ -9,8 +9,10 @@ import com.microsoft.alm.common.utils.SystemHelper;
 import com.microsoft.alm.helpers.Path;
 import com.microsoft.alm.plugin.authentication.AuthenticationInfo;
 import com.microsoft.alm.plugin.context.ServerContext;
+import com.microsoft.alm.plugin.context.ServerContextManager;
 import com.microsoft.alm.plugin.external.commands.AddCommand;
 import com.microsoft.alm.plugin.external.commands.CheckinCommand;
+import com.microsoft.alm.plugin.external.commands.CheckoutCommand;
 import com.microsoft.alm.plugin.external.commands.Command;
 import com.microsoft.alm.plugin.external.commands.CreateBranchCommand;
 import com.microsoft.alm.plugin.external.commands.CreateLabelCommand;
@@ -37,9 +39,11 @@ import com.microsoft.alm.plugin.external.commands.UndoCommand;
 import com.microsoft.alm.plugin.external.commands.UpdateWorkspaceCommand;
 import com.microsoft.alm.plugin.external.commands.UpdateWorkspaceMappingCommand;
 import com.microsoft.alm.plugin.external.exceptions.DollarInPathException;
+import com.microsoft.alm.plugin.external.exceptions.ToolAuthenticationException;
 import com.microsoft.alm.plugin.external.models.ChangeSet;
 import com.microsoft.alm.plugin.external.models.Conflict;
 import com.microsoft.alm.plugin.external.models.ConflictResults;
+import com.microsoft.alm.plugin.external.models.ExtendedItemInfo;
 import com.microsoft.alm.plugin.external.models.ItemInfo;
 import com.microsoft.alm.plugin.external.models.MergeConflict;
 import com.microsoft.alm.plugin.external.models.MergeMapping;
@@ -52,18 +56,22 @@ import com.microsoft.alm.plugin.external.models.SyncResults;
 import com.microsoft.alm.plugin.external.models.TfvcLabel;
 import com.microsoft.alm.plugin.external.models.VersionSpec;
 import com.microsoft.alm.plugin.external.models.Workspace;
+import com.microsoft.alm.plugin.external.models.WorkspaceInformation;
 import com.microsoft.alm.plugin.idea.tfvc.core.TFVCNotifications;
 import com.microsoft.alm.plugin.idea.tfvc.core.TfvcDeleteResult;
+import com.microsoft.tfs.model.connector.TfvcCheckoutResult;
 import org.apache.commons.lang.StringUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.URI;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Helper for running commands
@@ -86,21 +94,79 @@ public class CommandUtils {
     }
 
     /**
+     * Determine partial workspace information from the project base directory.
+     *
+     * @param project               project to determine the root workspace.
+     * @param allowCredentialPrompt whether to allow the command to prompt credentials from user if they're required.
+     * @return a partially populated {@link Workspace} object that includes just the name, server, and mappings. Will
+     * return null in case the project base directory couldn't be determined.
+     */
+    @Nullable
+    public static Workspace getPartialWorkspace(Project project, boolean allowCredentialPrompt) {
+        ArgumentHelper.checkNotNull(project, "project");
+        String basePath = project.getBasePath();
+        if (basePath == null) return null;
+        return getPartialWorkspace(Paths.get(basePath), allowCredentialPrompt);
+    }
+
+    /**
      * This method will return a partially populated Workspace object that includes just the name, server, and mappings
+     *
+     * @deprecated Use {@link #getPartialWorkspace(Project, boolean)} instead
      *
      * @param project
      * @return
      */
     public static Workspace getPartialWorkspace(final Project project) {
-        ArgumentHelper.checkNotNull(project, "project");
-        String basePath = project.getBasePath();
-        if (basePath == null) return null;
-        return getPartialWorkspace(Paths.get(basePath));
+        return getPartialWorkspace(project, false);
     }
 
-    @Nullable
+    /**
+     * This method will return a partially populated Workspace object that includes just the name, server, and mappings.
+     * It may require the user to enter the credentials.
+     *
+     * @param path                  path to a local workspace directory.
+     * @param allowCredentialPrompt whether to allow this method to request the user to enter the credentials.
+     */
+    @NotNull
+    public static Workspace getPartialWorkspace(@NotNull java.nio.file.Path path, boolean allowCredentialPrompt) {
+        // This command will fail to provide detailed information on a server workspace with no authentication provided.
+        logger.info("Determining workspace information from path {}", path);
+        FindWorkspaceCommand command = new FindWorkspaceCommand(path.toString(), null, true);
+        WorkspaceInformation resultWithNoAuth = command.runSynchronously();
+        if (resultWithNoAuth.getDetailed() != null) {
+            // Local workspace; no authentication was required.
+            logger.info("Workspace information determined successfully without authentication for {}", path);
+            return resultWithNoAuth.getDetailed();
+        }
+
+        logger.info("Workspace information could not be determined without authentication: {}", path);
+        WorkspaceInformation.BasicInformation basicInfo = Objects.requireNonNull(resultWithNoAuth.getBasic());
+        URI collectionUri = basicInfo.getCollectionUri();
+
+        logger.info(
+                "Loading authentication info for URI \"{}\", credential prompt allowed: {}",
+                collectionUri,
+                allowCredentialPrompt);
+        AuthenticationInfo authenticationInfo = ServerContextManager.getInstance()
+                .getBestAuthenticationInfo(collectionUri, allowCredentialPrompt);
+        if (authenticationInfo == null) {
+            logger.warn("Wasn't able to load the authentication information for \"{}\"", collectionUri);
+            throw new ToolAuthenticationException();
+        }
+
+        logger.info("Loading workspace information for path \"{}\" (using authentication info)", path);
+        WorkspaceInformation resultWithAuth = new FindWorkspaceCommand(path.toString(), authenticationInfo, false)
+                .runSynchronously();
+        return Objects.requireNonNull(resultWithAuth.getDetailed());
+    }
+
+    /**
+     * @deprecated Use {@link #getPartialWorkspace(java.nio.file.Path, boolean)} instead.
+     */
+    @NotNull
     public static Workspace getPartialWorkspace(@NotNull java.nio.file.Path path) {
-        return new FindWorkspaceCommand(path.toString()).runSynchronously();
+        return getPartialWorkspace(path, false);
     }
 
     /**
@@ -114,11 +180,12 @@ public class CommandUtils {
         return getPartialWorkspace(collectionName, workspaceName, null);
     }
 
+    @NotNull
     public static Workspace getPartialWorkspace(final String collectionName, final String workspaceName, final AuthenticationInfo authInfo) {
         ArgumentHelper.checkNotNull(collectionName, "collectionName");
         ArgumentHelper.checkNotNull(workspaceName, "workspaceName");
         final FindWorkspaceCommand command = new FindWorkspaceCommand(collectionName, workspaceName, authInfo);
-        return command.runSynchronously();
+        return Objects.requireNonNull(command.runSynchronously().getDetailed());
     }
 
     /**
@@ -136,6 +203,26 @@ public class CommandUtils {
         ArgumentHelper.checkNotNull(workspaceName, "workspaceName");
         ArgumentHelper.checkNotNull(authInfo, "authInfo");
         final GetDetailedWorkspaceCommand command = new GetDetailedWorkspaceCommand(collectionName, workspaceName, authInfo);
+        return command.runSynchronously();
+    }
+
+    /**
+     * Determine detailed workspace information (e.g. including a location kind).
+     *
+     * @param context server context to extract the authentication information from.
+     * @param project project to extract the path.
+     */
+    @Nullable
+    public static Workspace getDetailedWorkspace(@NotNull ServerContext context, @NotNull Project project) {
+        // First, call getPartialWorkspace to extract the workspace name and collection:
+        Workspace partialWorkspace = getPartialWorkspace(project, false);
+        if (partialWorkspace == null)
+            return null;
+
+        GetDetailedWorkspaceCommand command = new GetDetailedWorkspaceCommand(
+                partialWorkspace.getServerDisplayName(),
+                partialWorkspace.getName(),
+                context.getAuthenticationInfo());
         return command.runSynchronously();
     }
 
@@ -314,19 +401,6 @@ public class CommandUtils {
     public static List<String> undoLocalFiles(final ServerContext context, final List<String> files) {
         final UndoCommand command = new UndoCommand(context, files);
         return command.runSynchronously();
-    }
-
-    /**
-     * Get the status for a single file
-     *
-     * @param context
-     * @param file
-     * @return
-     */
-    public static PendingChange getStatusForFile(final ServerContext context, final String file) {
-        final Command<List<PendingChange>> command = new StatusCommand(context, file);
-        final List<PendingChange> results = command.runSynchronously();
-        return results.isEmpty() ? null : results.get(0);
     }
 
     /**
@@ -592,8 +666,8 @@ public class CommandUtils {
      */
     public static ItemInfo getItemInfo(final ServerContext context, final String workingFolder,
                                        final String itemPath) {
-        final Command<List<ItemInfo>> infoCommand = new InfoCommand(context, workingFolder, Collections.singletonList(itemPath));
-        List<ItemInfo> items = infoCommand.runSynchronously();
+        InfoCommand infoCommand = new InfoCommand(context, workingFolder, Collections.singletonList(itemPath));
+        List<ExtendedItemInfo> items = infoCommand.runSynchronously();
         if (items != null && items.size() > 0) {
             return items.get(0);
         }
@@ -605,9 +679,25 @@ public class CommandUtils {
      * Returns the item infos for the item paths provided. Specify a working folder in the workspace if you want info for
      * server paths.
      */
-    public static List<ItemInfo> getItemInfos(final ServerContext context, final List<String> itemPaths) {
-        final Command<List<ItemInfo>> infoCommand = new InfoCommand(context, itemPaths);
+    public static List<ExtendedItemInfo> getItemInfos(final ServerContext context, final List<String> itemPaths) {
+        Command<List<ExtendedItemInfo>> infoCommand = new InfoCommand(context, itemPaths);
         return infoCommand.runSynchronously();
+    }
+
+    /**
+     * Performs a checkout operation on the list of the files passed.
+     *
+     * @param serverContext a server context to extract the authentication information.
+     * @param filePaths     list of the files to checkout.
+     * @param recursive     whether the operation should be recursive.
+     * @return the checkout result.
+     */
+    @NotNull
+    public static TfvcCheckoutResult checkoutFilesForEdit(
+            @NotNull ServerContext serverContext,
+            @NotNull List<java.nio.file.Path> filePaths,
+            boolean recursive) {
+        return new CheckoutCommand(serverContext, filePaths, recursive).runSynchronously();
     }
 
     /**

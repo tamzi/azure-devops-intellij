@@ -10,7 +10,10 @@ import com.microsoft.alm.plugin.external.ToolRunner;
 import com.microsoft.alm.plugin.external.exceptions.ToolAuthenticationException;
 import com.microsoft.alm.plugin.external.exceptions.WorkspaceCouldNotBeDeterminedException;
 import com.microsoft.alm.plugin.external.models.Workspace;
+import com.microsoft.alm.plugin.external.models.WorkspaceInformation;
 import org.apache.commons.lang.StringUtils;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,7 +26,7 @@ import java.util.List;
  * (This is one of the only commands that expects to be a strictly local operation - no server calls - and so does not
  * take a server context object in the constructor)
  */
-public class FindWorkspaceCommand extends Command<Workspace> {
+public class FindWorkspaceCommand extends Command<WorkspaceInformation> {
     protected static final Logger logger = LoggerFactory.getLogger(FindWorkspaceCommand.class);
 
     protected static final String AUTH_ERROR_SERVER = "An error occurred: Access denied connecting to TFS server";
@@ -34,14 +37,27 @@ public class FindWorkspaceCommand extends Command<Workspace> {
     private final String collection;
     private final String workspace;
     private final AuthenticationInfo authInfo;
+    private final boolean allowBasicInformation;
 
-    public FindWorkspaceCommand(final String localPath) {
+    /**
+     * Creates a command instance that will determine the workspace details.
+     *
+     * @param localPath             local workspace path.
+     * @param authenticationInfo    authentication info (required to get detailed information on server workspaces)
+     * @param allowBasicInformation whether to allow to retrieve just basic information (which is possible even for
+     *                              server workspaces without credentials available).
+     */
+    public FindWorkspaceCommand(
+            @NotNull final String localPath,
+            @Nullable AuthenticationInfo authenticationInfo,
+            boolean allowBasicInformation) {
         super("workfold", null);
         ArgumentHelper.checkNotEmptyString(localPath, "localPath");
         this.localPath = localPath;
         this.collection = StringUtils.EMPTY;
         this.workspace = StringUtils.EMPTY;
-        this.authInfo = null;
+        this.authInfo = authenticationInfo;
+        this.allowBasicInformation = allowBasicInformation;
     }
 
     public FindWorkspaceCommand(final String collection, final String workspace, final AuthenticationInfo authInfo) {
@@ -52,6 +68,7 @@ public class FindWorkspaceCommand extends Command<Workspace> {
         this.workspace = workspace;
         this.authInfo = authInfo;
         this.localPath = StringUtils.EMPTY;
+        this.allowBasicInformation = false;
     }
 
     @Override
@@ -62,8 +79,6 @@ public class FindWorkspaceCommand extends Command<Workspace> {
             // NOTE Calling workfold with the localPath forces it to refresh the workspace from the server. Calling it with
             //      no arguments does not refresh it from the server.
             builder.setWorkingDirectory(localPath);
-            // TODO: fix CLC to not need login creds for this command. It never validates them so we pass anything
-            builder.addSwitch("login", "username,pw", true);
         } else if (StringUtils.isNotEmpty(collection) && StringUtils.isNotEmpty(workspace)) {
             // need both collection and workspace name to make this call local
             builder.addSwitch("collection", UrlHelper.getCmdLineFriendlyUrl(collection));
@@ -72,6 +87,10 @@ public class FindWorkspaceCommand extends Command<Workspace> {
 
         if (authInfo != null) {
             builder.addAuthInfo(authInfo);
+        } else if (!StringUtils.isEmpty(localPath)) {
+            logger.info("Using fake credentials for a FindWorkspaceCommand on the local workspace \"" + localPath + "\"");
+            // because the credentials are required even in cases when they're unused
+            builder.addSwitch("login", "username,pw");
         }
 
         return builder;
@@ -85,6 +104,28 @@ public class FindWorkspaceCommand extends Command<Workspace> {
     }
 
     /**
+     * Checks stderr for fatal errors. Will throw a corresponding exception on a fatal error, will return true on any
+     * nonfatal error. Will return false if no errors were discovered.
+     */
+    private boolean checkErrors(String stderr) {
+        if (StringUtils.startsWith(stderr, AUTH_ERROR_SERVER) || StringUtils.contains(stderr, AUTH_ERROR_FEDERATED)) {
+            logger.warn("Authentication exception hit when running 'tf workfold'");
+
+            // Basic information could be extracted even in case of authentication error, so we should ignore the error.
+            if (allowBasicInformation) {
+                return true;
+            }
+
+            throw new ToolAuthenticationException();
+        } else if (StringUtils.contains(stderr, WORKSPACE_COULD_NOT_BE_DETERMINED)) {
+            throw new WorkspaceCouldNotBeDeterminedException();
+        }
+        super.throwIfError(stderr);
+
+        return false;
+    }
+
+    /**
      * Parses the output of the workfold command. (NOT XML)
      * SAMPLE
      * Access denied connecting to TFS server https://organization.visualstudio.com/ (authenticating as Personal Access Token)  <-- line is optional
@@ -94,9 +135,8 @@ public class FindWorkspaceCommand extends Command<Workspace> {
      * $/tfsTest_01: D:\tmp\test
      */
     @Override
-    public Workspace parseOutput(final String stdout, final String stderr) {
-        throwIfError(stderr);
-
+    public WorkspaceInformation parseOutput(final String stdout, final String stderr) {
+        boolean hasNonFatalErrors = checkErrors(stderr);
         final String[] lines = getLines(stdout);
 
         for (int x = 0; x < lines.length; x++) {
@@ -104,6 +144,15 @@ public class FindWorkspaceCommand extends Command<Workspace> {
                 // Get the name and url from the next 2 lines
                 final String workspaceName = getValue(lines[x + 1]);
                 final String collectionURL = getValue(lines[x + 2]);
+
+                if (hasNonFatalErrors) {
+                    // In this case, we cannot read mappings, so just return basic information:
+                    return WorkspaceInformation.basic(
+                            new WorkspaceInformation.BasicInformation(
+                                    workspaceName,
+                                    UrlHelper.createUri(collectionURL)));
+                }
+
                 // Finally, parse the workspace mappings
                 final List<Workspace.Mapping> mappings = new ArrayList<Workspace.Mapping>(10);
                 for (int i = x + 3; i < lines.length; i++) {
@@ -112,7 +161,8 @@ public class FindWorkspaceCommand extends Command<Workspace> {
                         mappings.add(mapping);
                     }
                 }
-                return new Workspace(collectionURL, workspaceName, "", "", "", mappings);
+                Workspace workspace = new Workspace(collectionURL, workspaceName, "", "", "", mappings);
+                return WorkspaceInformation.detailed(workspace);
             }
         }
 
@@ -135,12 +185,11 @@ public class FindWorkspaceCommand extends Command<Workspace> {
      */
     @Override
     protected void throwIfError(final String stderr) {
-        if (StringUtils.startsWith(stderr, AUTH_ERROR_SERVER) || StringUtils.contains(stderr, AUTH_ERROR_FEDERATED)) {
-            logger.warn("Authentication exception hit when running 'tf workfold'");
-            throw new ToolAuthenticationException();
-        } else if (StringUtils.contains(stderr, WORKSPACE_COULD_NOT_BE_DETERMINED)) {
-            throw new WorkspaceCouldNotBeDeterminedException();
-        }
-        super.throwIfError(stderr);
+        checkErrors(stderr);
+    }
+
+    @Override
+    protected boolean shouldThrowBadExitCode() {
+        return !allowBasicInformation; // only check exit code if we aren't allowed to return just basic information
     }
 }

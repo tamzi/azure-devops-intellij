@@ -111,11 +111,25 @@ private fun initializeCollection(lifetime: Lifetime, definition: TfsCollectionDe
         client.getLocalItemsInfo(paths)
     }
 
+    collection.getExtendedLocalItemsInfo.set { paths ->
+        if (paths.isEmpty()) return@set emptyList()
+
+        logPaths("Get Local Items Info", paths)
+        client.getExtendedLocalItemsInfo(paths)
+    }
+
     collection.invalidatePaths.set { paths ->
         if (paths.isEmpty()) return@set
 
         logPaths("Invalidate", paths)
         client.invalidatePaths(paths)
+    }
+
+    collection.addFiles.set { paths ->
+        if (paths.isEmpty()) return@set emptyList()
+
+        logPaths("Add", paths)
+        client.addFiles(paths)
     }
 
     collection.deleteFilesRecursively.set { paths ->
@@ -130,6 +144,16 @@ private fun initializeCollection(lifetime: Lifetime, definition: TfsCollectionDe
 
         logPaths("Undo", paths)
         client.undoLocalChanges(paths)
+    }
+
+    collection.checkoutFilesForEdit.set { parameters ->
+        logPaths("Checkout (recursive: ${parameters.recursive})", parameters.filePaths)
+        client.checkoutFilesForEdit(parameters.filePaths, parameters.recursive)
+    }
+
+    collection.renameFile.set { (oldPath, newPath) ->
+        logger.info { "Performing Rename operation on \"${oldPath.path}\" to \"${newPath.path}\"" }
+        client.renameFile(oldPath, newPath)
     }
 
     client.workspaces.advise(lifetime) { workspaces ->

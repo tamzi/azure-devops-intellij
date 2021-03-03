@@ -15,16 +15,14 @@ import kotlinx.coroutines.CancellationException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CompletionStage
 
-class ReactiveClientConnection(private val scheduler: IScheduler) {
-    private val lifetimeDefinition = LifetimeDefinition()
-    val lifetime = lifetimeDefinition.lifetime
+class ReactiveClientConnection(val lifetime: LifetimeDefinition, private val scheduler: IScheduler) {
     private val socket = SocketWire.Server(
         lifetime,
         scheduler,
         null).apply {
         // Handle disconnection:
         connected.change.advise(lifetime) { connected ->
-            if (!connected) lifetimeDefinition.terminate()
+            if (!connected) lifetime.terminate()
         }
     }
     private val protocol = Protocol(
@@ -39,8 +37,6 @@ class ReactiveClientConnection(private val scheduler: IScheduler) {
 
     val port
         get() = socket.port
-
-    fun terminate() = lifetimeDefinition.terminate()
 
     fun startAsync(): CompletionStage<Void> =
         queueFutureAsync { lt ->
@@ -76,9 +72,22 @@ class ReactiveClientConnection(private val scheduler: IScheduler) {
             collection.getLocalItemsInfo.start(paths).pipeTo(lt, this)
         }
 
+    fun getExtendedItemsInfoAsync(
+        collection: TfsCollection,
+        paths: List<TfsLocalPath>
+    ): CompletionStage<List<TfsExtendedItemInfo>> =
+        queueFutureAsync { lt ->
+            collection.getExtendedLocalItemsInfo.start(paths).pipeTo(lt, this)
+        }
+
     fun invalidatePathsAsync(collection: TfsCollection, paths: List<TfsLocalPath>): CompletionStage<Void> =
         queueFutureAsync { lt ->
             collection.invalidatePaths.start(paths).pipeToVoid(lt, this)
+        }
+
+    fun addFilesAsync(collection: TfsCollection, files: List<TfsLocalPath>): CompletionStage<List<TfsLocalPath>> =
+        queueFutureAsync { lt ->
+            collection.addFiles.start(files).pipeTo(lt, this)
         }
 
     fun deleteFilesRecursivelyAsync(collection: TfsCollection, paths: List<TfsPath>): CompletionStage<TfsDeleteResult> =
@@ -89,6 +98,24 @@ class ReactiveClientConnection(private val scheduler: IScheduler) {
     fun undoLocalChangesAsync(collection: TfsCollection, paths: List<TfsPath>): CompletionStage<List<TfsLocalPath>> =
         queueFutureAsync { lt ->
             collection.undoLocalChanges.start(paths).pipeTo(lt, this)
+        }
+
+    fun checkoutFilesForEditAsync(
+        collection: TfsCollection,
+        filePaths: List<TfsLocalPath>,
+        recursive: Boolean
+    ): CompletionStage<TfvcCheckoutResult> =
+        queueFutureAsync { lt ->
+            collection.checkoutFilesForEdit.start(TfvcCheckoutParameters(filePaths, recursive)).pipeTo(lt, this)
+        }
+
+    fun renameFileAsync(
+        collection: TfsCollection,
+        oldPath: TfsLocalPath,
+        newPath: TfsLocalPath
+    ): CompletionStage<Boolean> =
+        queueFutureAsync { lt ->
+            collection.renameFile.start(TfvcRenameRequest(oldPath, newPath)).pipeTo(lt, this)
         }
 
     private fun <T> queueFutureAsync(action: CompletableFuture<T>.(Lifetime) -> Unit): CompletionStage<T> {
